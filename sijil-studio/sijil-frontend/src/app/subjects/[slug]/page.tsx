@@ -127,7 +127,7 @@ export default async function SubjectPage({ params }: SubjectPageProps) {
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                   {docs.map((doc) => (
                     <DocumentCard
-                      key={doc.document_id || doc._id}
+                      key={doc.document_id}
                       document={doc}
                     />
                   ))}

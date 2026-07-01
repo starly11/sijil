@@ -14,15 +14,6 @@ export const generateOrganizationSchema = () => {
     description: siteConfig.description,
     url: siteConfig.url,
     logo: `${siteConfig.url}/logo.png`,
-    sameAs: [
-      siteConfig.links.twitter,
-      siteConfig.links.github,
-    ].filter(Boolean),
-    contactPoint: {
-      '@type': 'ContactPoint',
-      contactType: 'customer support',
-      email: siteConfig.email,
-    },
   };
 };
 

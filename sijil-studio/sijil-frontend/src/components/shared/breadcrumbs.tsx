@@ -2,8 +2,6 @@
 
 import { usePathname } from 'next/navigation';
 import { ChevronRight } from 'lucide-react';
-import { cn } from '@/lib/utils';
-import { Button } from '@/components/ui/button';
 import { useEffect, useState } from 'react';
 import { generateBreadcrumbSchema } from '@/lib/seo/schema-generators';
 
@@ -95,13 +93,12 @@ export function Breadcrumbs() {
                   {item.label}
                 </span>
               ) : (
-                <Button
-                  variant="link"
-                  className="h-auto p-0 font-normal text-muted-foreground hover:text-primary"
-                  asChild
+                <a 
+                  href={item.href}
+                  className="h-auto p-0 font-normal text-muted-foreground hover:text-primary underline-offset-4 hover:underline transition-colors"
                 >
-                  <a href={item.href}>{item.label}</a>
-                </Button>
+                  {item.label}
+                </a>
               )}
             </div>
           );

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Menu, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -11,9 +11,19 @@ import { HEADER_NAV_ITEMS } from '@/config/navigation';
 
 export function Header() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [isScrolled, setIsScrolled] = useState(false);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      setIsScrolled(window.scrollY > 0);
+    };
+
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
 
   return (
-    <header className="sticky top-0 z-40 w-full border-b bg-background/95 backdrop-blur-md transition-colors duration-200">
+    <header className={`sticky top-0 z-40 w-full border-b bg-background transition-colors duration-200 ${isScrolled ? 'shadow-md' : ''}`}>
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
         {/* Branding Logo Block */}
         <Link href="/" className="flex items-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-md">
@@ -35,14 +45,16 @@ export function Header() {
 
         {/* Global Toolbar Action Controls Wrapper */}
         <div className="flex items-center gap-2">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="text-foreground"
-            aria-label="Open search model overview interface"
-          >
-            <Search className="h-5 w-5" />
-          </Button>
+          <Link href="/search">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="text-foreground"
+              aria-label="Open search"
+            >
+              <Search className="h-5 w-5" />
+            </Button>
+          </Link>
 
           <div className="hidden md:block">
             <ThemeToggle />

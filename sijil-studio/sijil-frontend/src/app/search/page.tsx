@@ -23,12 +23,13 @@ interface PageProps {
 }
 
 export default async function SearchPage({ searchParams }: PageProps) {
-  const query = searchParams.q || '';
+  const params = await searchParams;
+  const query = params.q || '';
   const filters: SearchFiltersType = {
-    type: searchParams.type,
-    subject: searchParams.subject,
-    grade: searchParams.grade,
-    page: parseInt(searchParams.page || '1'),
+    type: params.type,
+    subject: params.subject,
+    grade: params.grade,
+    page: parseInt(params.page || '1'),
   };
 
   // Fetch search results and filters in parallel
