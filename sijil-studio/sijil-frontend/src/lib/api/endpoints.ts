@@ -1,0 +1,40 @@
+export const API_ENDPOINTS = {
+  HEALTH: '/health',
+  PLATFORM_STATS: '/utility/platform-stats',
+  SUBJECTS: '/subjects',
+  GRADES: '/grades',
+  RECENT_DOCUMENTS: '/utility/recent-arrivals',
+  DOCUMENTS: '/documents',
+  DOCUMENT: (docId: string) => `/documents/${docId}`,
+  DOCUMENT_TOPICS: (docId: string) => `/documents/${docId}/topics`,
+  DOCUMENT_AGGREGATES: (docId: string) => `/documents/${docId}/aggregates`,
+  TOPICS: '/topics',
+  TOPIC_BY_ID: (topicId: string) => `/topics/${topicId}`,
+  TOPIC_BY_SLUG: (slug: string) => `/topics/slug/${slug}`,
+  TOPIC_CONTENT: (topicId: string) => `/topics/${topicId}/content`,
+  TOPIC_ASSETS: (topicId: string) => `/topics/${topicId}/assets`,
+  TOPIC_ASSESSMENTS: (topicId: string) => `/topics/${topicId}/assessments`,
+  TOPIC_PAGE: (topicId: string) => `/topics/${topicId}/page`,
+  SEARCH: '/search',
+  SEARCH_FORMULAS: '/search/formulas',
+  SEARCH_SUGGEST: '/search/suggest',
+  SEARCH_TRENDING: '/search/trending',
+  EXPORTS: '/exports',
+  EXPORT_JOB: (jobId: string) => `/exports/${jobId}`,
+  EXPORT_DOWNLOAD: '/export/download',
+  EXPORT_STALE: (jobId: string) => `/export/${jobId}/stale`,
+  EXPORT_POLICIES: '/policies',
+  EXPORT_POLICY: (docType: string) => `/policies/${docType}`,
+
+  // Quran endpoints
+  QURAN_SURAHS: '/quran/surahs',
+  QURAN_SURAH: (surahNumber: number) => `/quran/surah/${surahNumber}`,
+
+  // Admin endpoints
+  INGEST_JSON: '/ingest/json',
+  INGEST_STATUS: (trackingId: string) => `/ingest/${trackingId}`,
+  ADMIN_ANALYTICS_OVERVIEW: '/utility/analytics/topics', // Or whatever the real backend uses
+  IMPORT_PREVIEW: '/admin/import/preview',
+  IMPORT_START: '/admin/import/start',
+  IMPORT_STATUS: (batchId: string) => `/admin/import/${batchId}`,
+} as const;

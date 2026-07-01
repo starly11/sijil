@@ -1,0 +1,158 @@
+/* Print styles for document viewer */
+@media print {
+  /* Hide non-essential elements */
+  header,
+  footer,
+  nav,
+  aside,
+  .no-print,
+  [role="progressbar"],
+  button,
+  .interactive-controls {
+    display: none !important;
+  }
+
+  /* Reset background colors for ink saving */
+  * {
+    background: transparent !important;
+    color: #000 !important;
+    box-shadow: none !important;
+  }
+
+  /* Ensure text is readable in print */
+  body {
+    font-size: 12pt;
+    line-height: 1.5;
+    max-width: none;
+    padding: 0;
+    margin: 0;
+  }
+
+  /* Main content area */
+  main {
+    width: 100%;
+    max-width: none;
+    padding: 0;
+    margin: 0;
+  }
+
+  article {
+    width: 100%;
+    max-width: none;
+  }
+
+  /* Prevent page breaks within sections */
+  section,
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    page-break-inside: avoid;
+    page-break-after: avoid;
+  }
+
+  /* Allow page breaks between major sections */
+  article > section {
+    page-break-before: auto;
+  }
+
+  /* Ensure images fit on page */
+  img {
+    max-width: 100% !important;
+    height: auto;
+    page-break-inside: avoid;
+  }
+
+  /* Links - show URL for reference */
+  a[href] {
+    text-decoration: underline;
+  }
+
+  a[href]:after {
+    content: " (" attr(href) ")";
+    font-size: 0.8em;
+    font-weight: normal;
+  }
+
+  /* Don't show URLs for internal links */
+  a[href^="#"]:after {
+    content: "";
+  }
+
+  /* Hide interactive elements */
+  .citation-tool,
+  .font-controls,
+  .toc-toggle,
+  .reading-progress {
+    display: none !important;
+  }
+
+  /* Adjust margins for printed pages */
+  @page {
+    margin: 2cm;
+    size: A4;
+  }
+
+  /* First page can have different margin if needed */
+  @page :first {
+    margin-top: 2.5cm;
+  }
+}
+
+/* Screen reader optimizations */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+/* Skip link for accessibility */
+.skip-link {
+  position: absolute;
+  top: -40px;
+  left: 0;
+  background: #000;
+  color: white;
+  padding: 8px;
+  z-index: 100;
+  transition: top 0.3s;
+}
+
+.skip-link:focus {
+  top: 0;
+}
+
+/* Focus visible styles for better keyboard navigation */
+*:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .prose {
+    --tw-prose-body: #000;
+    --tw-prose-headings: #000;
+    --tw-prose-links: #0000ee;
+  }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

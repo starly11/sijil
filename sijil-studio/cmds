@@ -1,0 +1,10 @@
+# provision workspace using current standard Next.js 16 build definitions
+npx create-next-app@latest sijil-frontend --typescript --tailwind --eslint --app --src-dir --import-alias "@/*"
+
+cd sijil-frontend
+
+# Lock down fully modernized runtime packages matching modern enterprise stability
+npm install next@latest react@latest react-dom@latest
+
+# Upgrade State management & Query engines supporting modern hydration architectures
+npm install @tanstack/react-query@latest zustand@latest zod date-fns lucide-react clsx tailwind-merge

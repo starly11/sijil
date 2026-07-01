@@ -1,0 +1,50 @@
+{
+  "index_name": "topics_search",
+  "collection_name": "topics",
+  "mappings": {
+    "dynamic": false,
+    "fields": {
+      "title": [
+        {
+          "type": "string",
+          "analyzer": "lucene.english"
+        }
+      ],
+      "keywords": [
+        {
+          "type": "string"
+        }
+      ],
+      "key_terms_preview": [
+        {
+          "type": "string"
+        }
+      ],
+      "subject": [
+        {
+          "type": "string"
+        }
+      ],
+      "grade_numeric": [
+        {
+          "type": "number"
+        }
+      ],
+      "difficulty": [
+        {
+          "type": "string"
+        }
+      ],
+      "topic_type": [
+        {
+          "type": "string"
+        }
+      ],
+      "document_id": [
+        {
+          "type": "string"
+        }
+      ]
+    }
+  }
+}

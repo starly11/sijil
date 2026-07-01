@@ -1,0 +1,13 @@
+```
+# Logs and temp files
+*.log
+server.log
+
+# Environment
+.env
+.env.local
+*.env.*
+
+# Dependencies
+node_modules/
+```

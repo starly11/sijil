@@ -1,0 +1,23 @@
+# Logs
+*.log
+node_modules
+dist
+.env
+.env.local
+.env.*.local
+
+# Editor
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Build outputs
+build/
+.next/
+*.tar.gz
+*.zip
+
+project-start-prompts

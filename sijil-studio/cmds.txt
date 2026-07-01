@@ -1,0 +1,26 @@
+# Phase 04 - Topic List Implementation
+# Run these commands locally to verify the implementation
+
+# 1. Install dependencies (if not already installed)
+npm install
+
+# 2. Run TypeScript type checking
+npm run type-check
+
+# 3. Run ESLint
+npm run lint
+
+# 4. Build the project
+npm run build
+
+# 5. Start development server
+npm run dev
+
+# Manual testing checklist:
+# - Navigate to /topics to see topic list
+# - Test filtering by collection
+# - Test search functionality
+# - Test pagination
+# - Navigate to a specific topic: /topics/[slug]
+# - Verify responsive design on mobile and desktop
+# - Check accessibility with keyboard navigation
