@@ -63,16 +63,14 @@ export default async function SubjectPage({ params }: SubjectPageProps) {
               documentsByGrade[gradeKey] = [];
             }
             documentsByGrade[gradeKey].push({
-              _id: doc._id || '',
-              title: doc.document_metadata?.title || '',
-              slug: doc.seo_master?.slug || '',
               document_id: doc.document_metadata?.document_id || '',
+              title: doc.document_metadata?.title || '',
+              document_type: doc.document_metadata?.document_type || 'textbook',
               subject: doc.document_metadata?.subject || '',
-              grade_numeric: doc.document_metadata?.grade_level,
-              language: doc.document_metadata?.language || 'en',
-              topic_refs: doc.topic_refs || [],
-              created_at: doc.created_at || new Date().toISOString(),
-              updated_at: doc.updated_at || new Date().toISOString(),
+              grade_level: String(doc.document_metadata?.grade_level || 'N/A'),
+              slug: doc.seo_master?.slug || '',
+              url_path: doc.publishing?.url_path || '',
+              arrived_at: doc.created_at || new Date().toISOString(),
             });
           }
         });
