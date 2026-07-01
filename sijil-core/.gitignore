@@ -1,4 +1,3 @@
-```
 # Logs and temp files
 *.log
 server.log
@@ -6,8 +5,38 @@ server.log
 # Environment
 .env
 .env.local
-*.env.*
+!.env.example
 
 # Dependencies
 node_modules/
-```
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Output directories
+dist/
+build/
+tmp/
+temp/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# MongoDB data (if running locally)
+data/
+*.lock
