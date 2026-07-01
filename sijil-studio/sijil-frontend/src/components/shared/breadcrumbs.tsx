@@ -1,9 +1,11 @@
+'use client';
+
 import { usePathname } from 'next/navigation';
 import { ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { useEffect, useState } from 'react';
-import { breadcrumbSchema } from '@/lib/seo/schema-generators';
+import { generateBreadcrumbSchema } from '@/lib/seo/schema-generators';
 
 interface BreadcrumbItem {
   label: string;
@@ -60,10 +62,9 @@ export function Breadcrumbs() {
     setItems(breadcrumbs);
 
     // Generate Schema.org JSON-LD
-    const schema = breadcrumbSchema(breadcrumbs.map((item, idx) => ({
-      position: idx + 1,
+    const schema = generateBreadcrumbSchema(breadcrumbs.map((item, idx) => ({
       name: item.label,
-      item: `${SITE_DOMAIN}${item.href}`
+      url: `${SITE_DOMAIN}${item.href}`
     })));
     setJsonLd(JSON.stringify(schema));
   }, [pathname]);
