@@ -1,6 +1,7 @@
 import React from 'react';
 import { Header } from '@/components/layout/header';
 import { Footer } from '@/components/layout/footer';
+import { Breadcrumbs } from '@/components/shared/breadcrumbs';
 
 interface MainLayoutProps {
   children: React.ReactNode;
@@ -24,7 +25,10 @@ export function MainLayout({ children }: MainLayoutProps) {
       <Header />
 
       <main id="main-content" className="flex-1 flex flex-col outline-none">
-        {children}
+        <div className="container mx-auto px-4 py-6">
+          <Breadcrumbs />
+          {children}
+        </div>
       </main>
 
       <Footer />
