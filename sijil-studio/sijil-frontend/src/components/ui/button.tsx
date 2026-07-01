@@ -3,7 +3,7 @@ import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
 export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: 'primary' | 'secondary' | 'outline' | 'ghost';
+  variant?: 'primary' | 'secondary' | 'outline' | 'ghost' | 'link';
   // 1. Added 'icon' to the allowed types here
   size?: 'sm' | 'md' | 'lg' | 'icon';
 }
@@ -21,6 +21,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
               'bg-muted text-foreground hover:bg-muted/80': variant === 'secondary',
               'border border-border bg-background hover:bg-muted text-foreground': variant === 'outline',
               'hover:bg-muted text-foreground': variant === 'ghost',
+              'text-primary underline-offset-4 hover:underline': variant === 'link',
 
               // Standard sizes
               'px-3 py-1.5 text-xs': size === 'sm',
