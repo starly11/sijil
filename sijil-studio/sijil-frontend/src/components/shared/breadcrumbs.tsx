@@ -1,5 +1,3 @@
-'use client';
-
 import { usePathname } from 'next/navigation';
 import { ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -11,6 +9,9 @@ interface BreadcrumbItem {
   label: string;
   href: string;
 }
+
+// Get domain from environment or use default
+const SITE_DOMAIN = process.env.NEXT_PUBLIC_SITE_URL || 'https://sijil.com';
 
 export function Breadcrumbs() {
   const pathname = usePathname();
@@ -62,7 +63,7 @@ export function Breadcrumbs() {
     const schema = breadcrumbSchema(breadcrumbs.map((item, idx) => ({
       position: idx + 1,
       name: item.label,
-      item: `https://sijil.com${item.href}` // TODO: Replace with actual domain
+      item: `${SITE_DOMAIN}${item.href}`
     })));
     setJsonLd(JSON.stringify(schema));
   }, [pathname]);
