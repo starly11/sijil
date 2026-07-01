@@ -2,7 +2,7 @@ import { Metadata } from 'next';
 import { api } from '@/lib/api/client';
 import { API_ENDPOINTS } from '@/lib/api/endpoints';
 import type { Subject, Grade } from '@/types/api';
-import type { Document } from '@/lib/api/types';
+import type { Document } from '@/types/homepage';
 import { DocumentCard } from '@/components/documents/document-card';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import Link from 'next/link';
