@@ -21,8 +21,10 @@ export interface FooterSection {
 }
 
 export const HEADER_NAV_ITEMS: NavItem[] = [
+  { label: 'Home', href: '/' },
   { label: 'Documents', href: '/documents' },
   { label: 'Subjects', href: '/subjects' },
+  { label: 'Quran', href: '/quran' },
   { label: 'Search', href: '/search' },
   { label: 'Exports', href: '/exports' },
 ];
@@ -31,8 +33,10 @@ export const FOOTER_NAV_SECTIONS: FooterSection[] = [
   {
     title: 'Quick Links',
     items: [
+      { label: 'Home', href: '/' },
       { label: 'Documents', href: '/documents' },
       { label: 'Subjects', href: '/subjects' },
+      { label: 'Quran', href: '/quran' },
       { label: 'Search', href: '/search' },
       { label: 'Exports', href: '/exports' },
     ],
