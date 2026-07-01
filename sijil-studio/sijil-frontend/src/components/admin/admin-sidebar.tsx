@@ -8,8 +8,6 @@ import {
   FileJson,
   CloudUpload,
   FileText,
-  BookOpen,
-  FileQuestion,
   BarChart3,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -59,24 +57,14 @@ export const AdminSidebar: React.FC = () => {
       icon: <CloudUpload className="h-5 w-5" />,
     },
     {
-      label: 'Documents',
-      href: '/admin/documents',
-      icon: <FileText className="h-5 w-5" />,
-    },
-    {
-      label: 'Topics',
-      href: '/admin/topics',
-      icon: <BookOpen className="h-5 w-5" />,
-    },
-    {
-      label: 'Assessments',
-      href: '/admin/assessments',
-      icon: <FileQuestion className="h-5 w-5" />,
-    },
-    {
       label: 'Analytics',
       href: '/admin/analytics',
       icon: <BarChart3 className="h-5 w-5" />,
+    },
+    {
+      label: 'Performance',
+      href: '/admin/performance',
+      icon: <FileText className="h-5 w-5" />,
     },
   ];
 
