@@ -8,6 +8,7 @@ interface Subject {
   subject: string;
   slug: string;
   description?: string;
+  updated_at?: string;
 }
 
 interface Document {
