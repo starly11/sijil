@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { AnalyticsOverview } from '@/types/api';
 
 interface AnalyticsDashboardProps {
-  data: AnalyticsOverview | null | undefined;
+  data?: AnalyticsOverview | null | undefined;
   isLoading?: boolean;
 }
 
