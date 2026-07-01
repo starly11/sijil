@@ -35,10 +35,10 @@ export default async function SubjectPage({ params }: SubjectPageProps) {
       subject = subjectsRes.data.data?.find((s) => s.slug === slug) || null;
     }
 
-    // Get grades for this subject
+    // Get grades
     if (subject) {
       const gradesRes = await api.get<{ success: boolean; data: Grade[] }>(
-        API_ENDPOINTS.SUBJECT_GRADES(subject.subject)
+        API_ENDPOINTS.GRADES
       );
       if (gradesRes.data?.success) {
         grades = gradesRes.data.data || [];
