@@ -125,6 +125,7 @@ export async function getAllSurahs(req, res, next) {
     const cleanSurahs = surahs.map(({ 
       _id, _seeded_at, _source, __v, name_urdu, juz_start, ...rest 
     }) => ({
+      id: rest.surah_number,
       number: rest.surah_number,
       name: rest.name_arabic,
       englishName: rest.name_english,
