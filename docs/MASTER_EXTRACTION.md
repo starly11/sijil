@@ -212,3 +212,200 @@
 | `topics` | z.array(TopicIngestSchema).min(1) | Yes | — | At least 1 topic |
 | `type_specific_data` | z.record(z.string(), z.any()) | No | {} | Arbitrary key-value pairs |
 
+
+---
+## SCHEMA: src/services/validation/tier1.js
+
+### Exported Functions
+- `checkTier1(rawParsed)`
+
+### checkTier1(rawParsed)
+**Input:** Raw parsed JSON object (unverified)
+**Returns:** `{ passed: boolean, errors: Array<{ message: string }> }`
+
+**TIER 1 — Hard failures** (list every check):
+  - Condition: `!rawParsed` (payload is null/undefined)
+    Error message: `"Payload missing or null"`
+  
+  - Condition: `rawParsed.schema_version !== CURRENT_SCHEMA_VERSION && rawParsed.schema_version !== "2.0.0"`
+    Error message: `Invalid schema version target. Expected: "${CURRENT_SCHEMA_VERSION}"`
+  
+  - Condition: `!Array.isArray(topics) || topics.length === 0` (topics array missing or empty)
+    Error message: `"topics array must not be empty"`
+  
+  - Condition: Topic at index is not a valid object (`!topic || typeof topic !== 'object'`)
+    Error message: `Topic at index ${idx} is not a valid object container`
+  
+  - Condition: Topic missing required field (`val === undefined || val === null || val === ""`)
+    Error message: `Topic at index ${idx} is missing required field: ${field}`
+    Fields checked: `["title", "slug"]`
+
+---
+## SCHEMA: src/services/validation/tier2.js
+
+### Exported Functions
+- `applyTier2AutoFixes(rawParsed)`
+- `normalizeMcqItem(item, topicId, log, locationRef)` (helper)
+
+### applyTier2AutoFixes(rawParsed)
+**Input:** Raw parsed object passing Tier 1
+**Returns:** `{ repaired: any, autoFixLog: Array<{ type: string, topic_id: string, message: string }> }`
+
+**TIER 2 — Auto-fixes** (list every fix):
+
+1. **SEO meta_title truncation**
+   - Condition: `topic?.seo?.meta_title && topic.seo.meta_title.length > 60`
+   - What changes: `topic.seo.meta_title = oldTitle.slice(0, 57) + "..."`
+   - Log message: `Truncated meta_title from ${oldTitle.length} to ${topic.seo.meta_title.length} characters.`
+   - Log type: `"seo_meta_title_truncated"`
+
+2. **SEO meta_description truncation**
+   - Condition: `topic?.seo?.meta_description && topic.seo.meta_description.length > 160`
+   - What changes: `topic.seo.meta_description = oldDesc.slice(0, 157) + "..."`
+   - Log message: `Truncated meta_description from ${oldDesc.length} to ${topic.seo.meta_description.length} characters.`
+   - Log type: `"seo_meta_description_truncated"`
+
+3. **Slug sanitization**
+   - Condition: `topic?.slug && !SLUG_REGEX.test(topic.slug)`
+   - What changes: `topic.slug = sanitizeSlug(topic.slug)`
+   - Log message: `Sanitized invalid slug structure: "${oldSlug}" modified to "${topic.slug}"`
+   - Log type: `"slug_sanitized"`
+
+4. **source_page_start coercion**
+   - Condition: `typeof topic?.source_page_start === 'string'`
+   - What changes: `topic.source_page_start = Number.parseInt(topic.source_page_start, 10)`
+
+5. **source_page_end coercion**
+   - Condition: `typeof topic?.source_page_end === 'string'`
+   - What changes: `topic.source_page_end = Number.parseInt(topic.source_page_end, 10)`
+
+6. **Content block source_page coercion**
+   - Condition: `typeof block?.source_page === 'string'` (within content_blocks iteration)
+   - What changes: `block.source_page = Number.parseInt(block.source_page, 10)`
+
+7. **Block order sequentialization**
+   - Condition: `block && block.block_order !== targetOrder` where `targetOrder = orderIdx + 1`
+   - What changes: `block.block_order = targetOrder`
+   - Log message: `Fixed broken gaps or structural duplicates in content_blocks layout coordinates.`
+   - Log type: `"block_orders_sequentialized"`
+
+8. **MCQ answer normalization** (in content_blocks and book_mcqs)
+   - Delegates to `normalizeMcqItem()` helper
+
+### normalizeMcqItem(item, topicId, log, locationRef)
+**TIER 2 — Auto-fixes for MCQ:**
+
+1. **MCQ answer lowercasing**
+   - Condition: `/^[A-D]$/.test(ans)` where `ans = item.correct_answer`
+   - What changes: `item.correct_answer = ans.toLowerCase()`
+   - Log message: `Normalized key case mapping at ${locationRef} from "${ans}" to "${item.correct_answer}".`
+   - Log type: `"mcq_answer_lowercased"`
+
+2. **MCQ answer resolved from text match**
+   - Condition: Text alignment match found in options (a/b/c/d)
+   - What changes: `item.correct_answer = key` (the matching option key)
+   - Log message: `Mapped full option text match at ${locationRef} back to canonical option key "${key}".`
+   - Log type: `"mcq_answer_resolved_from_text"`
+
+3. **MCQ answer unmapped warning** (logged but not fixed)
+   - Condition: Answer doesn't match any option after normalization
+   - Log message: `MCQ choice text mismatch flagged at ${locationRef}: "${ans}" does not fit options schemas.`
+   - Log type: `"mcq_answer_unmapped_warning"`
+
+---
+## SCHEMA: src/services/validation/tier3.js
+
+### Exported Functions
+- `checkTier3Flags(rawTopic, validatedTopic, documentLevel)`
+
+### checkTier3Flags(rawTopic, validatedTopic, documentLevel)
+**Input:** 
+- `rawTopic`: Raw topic payload (pre-Zod normalization)
+- `validatedTopic`: Fully clean, typed entity from Zod schemas
+- `documentLevel`: Global metadata block with compilation attributes
+
+**Returns:** `Array<{ type: string, topic_id: string, ref_id?: string, message: string }>`
+
+**TIER 3 — Quality flags** (list every flag):
+
+1. **Low confidence score** (document level)
+   - Condition: `typeof score === 'number' && score < 0.80` where `score = documentLevel.confidence_score`
+   - Flag type: `"low_confidence_score"`
+   - Message: `Ingestion layer runtime confidence falls below platform threshold: ${score}`
+   - topic_id: `"document_level"`
+
+2. **Ingest warnings present** (document level)
+   - Condition: `Array.isArray(documentLevel.warnings) && documentLevel.warnings.length > 0`
+   - Flag type: `"ingest_warnings_present"`
+   - Message: `Upstream pipelines emitted processing warnings: [${documentLevel.warnings.join(', ')}]`
+   - topic_id: `"document_level"`
+
+3. **Short alt text** (figures)
+   - Condition: `wordCount < 20` where wordCount is count of words in `fig.alt`
+   - Flag type: `"short_alt_text"`
+   - Message: `Figure ${fig.figure_number || ''} alternative description text is terse (${wordCount} words). Accessibility pipelines require detailed descriptions.`
+   - ref_id: `fig._id`
+
+4. **Incomplete formula**
+   - Condition: `!form.latex || !form.text`
+   - Flag type: `"incomplete_formula"`
+   - Message: `Formula target named "${form.name || 'unnamed'}" lacks LaTeX compilation rendering strings.`
+   - ref_id: `form.formula_id`
+
+5. **Missing raw_text**
+   - Condition: `proseWords === 0` where proseWords is word count of `validatedTopic.raw_text`
+   - Flag type: `"missing_raw_text"`
+   - Message: `"The raw text corpus field is completely empty."`
+
+6. **Low word count**
+   - Condition: `proseWords < 50`
+   - Flag type: `"low_word_count"`
+   - Message: `The text content length is unusually low (${proseWords} words). Verify content block extraction status.`
+
+7. **Irregular MCQ options** (book_mcqs)
+   - Condition: `optKeys.length !== 4` where optKeys are keys of `rawMcq?.options`
+   - Flag type: `"irregular_mcq_options"`
+   - Message: `Book MCQ has non-standard options structure configuration (${optKeys.length} choices found instead of 4).`
+   - ref_id: `rawMcq?._id || idx_${idx}`
+
+8. **Irregular MCQ options** (content_blocks)
+   - Condition: `rawBlk?.type === "mcq"` AND `optKeys.length !== 4`
+   - Flag type: `"irregular_mcq_options"`
+   - Message: `Content block MCQ contains abnormal options dimensions (${optKeys.length} choices found instead of 4).`
+   - ref_id: `rawBlk?._id`
+
+---
+## SCHEMA: src/services/validation/index.js
+
+### Exported Functions
+- `validateQwenOutput(rawJsonStringOrObject)`
+- Re-exports: `DocumentIngestSchema`, `TopicIngestSchema`
+
+### validateQwenOutput(rawJsonStringOrObject)
+**Input:** `rawJsonStringOrObject` - Raw JSON string or pre-parsed object
+**Returns:** `Promise<{ valid: boolean, tier?: number, errors?: any[], data?: any, autoFixLog?: any[], flags?: any[], note?: string }>`
+
+**Validation Pipeline Flow:**
+
+1. **Parse guard:** If input is string, parse with `JSON.parse()`. On error:
+   - Returns: `{ valid: false, tier: 1, errors: [{ message: "Invalid JSON payload structure: ${err.message}" }] }`
+
+2. **Tier 1 execution:** Calls `checkTier1(rawParsed)`. If `!tier1Result.passed`:
+   - Returns: `{ valid: false, tier: 1, errors: tier1Result.errors }`
+
+3. **Tier 2 repair:** Calls `applyTier2AutoFixes(rawParsed)` → gets `repaired` and `autoFixLog`
+
+4. **Tier 3 flag evaluation:** Calls `checkTier3Flags(topicLevel, topicLevel, documentLevel)` where:
+   - `topicLevel = repaired.topics?.[0]`
+   - `documentLevel = repaired.ingest_metadata`
+
+5. **Success return:**
+   ```js
+   {
+       valid: true,
+       data: repaired,
+       autoFixLog,
+       flags
+   }
+   ```
+
