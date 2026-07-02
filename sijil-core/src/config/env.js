@@ -12,15 +12,14 @@ const envSchema = z.object({
     // --- Queue / Cache ---
     REDIS_URL: z.string().regex(/^rediss?:\/\//, {
         message: "Must be a valid Redis TCP connection string starting with redis:// or rediss://"
-    }),
-    UPSTASH_REDIS_REST_URL: z.string().url({ message: "Must be a valid HTTP REST URL" }),
-    UPSTASH_REDIS_REST_TOKEN: z.string().min(1, { message: "REST token is required" }),
-
+    }).default("redis://localhost:6379"),
+    UPSTASH_REDIS_REST_URL: z.string().url({ message: "Must be a valid HTTP REST URL" }).optional().default("http://localhost:6379"),
+    UPSTASH_REDIS_REST_TOKEN: z.string().min(1, { message: "REST token is required" }).optional().default("default"),
 
     // --- Asset storage ---
-    ASSET_BASE_URL: z.string().url({ message: "Must be a valid asset base URL" }),
-    ASSET_REPO_OWNER: z.string().min(1, { message: "Asset repository owner is required" }),
-    ASSET_REPO_NAME: z.string().min(1, { message: "Asset repository name is required" }),
+    ASSET_BASE_URL: z.string().url({ message: "Must be a valid asset base URL" }).default("https://raw.githubusercontent.com/sijil-onyx/sijil-assets/main"),
+    ASSET_REPO_OWNER: z.string().min(1, { message: "Asset repository owner is required" }).default("sijil-onyx"),
+    ASSET_REPO_NAME: z.string().min(1, { message: "Asset repository name is required" }).default("sijil-assets"),
     ASSET_REPO_BRANCH: z.string().default("main"),
 
     // --- App ---
