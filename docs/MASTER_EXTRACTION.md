@@ -409,3 +409,692 @@
    }
    ```
 
+
+---
+## SCHEMA: src/services/validation/tier1.js
+
+### Exported Functions
+- `checkTier1(rawParsed)`
+
+### checkTier1(rawParsed)
+**Purpose:** Rapid structure presence evaluation across unverified payloads
+
+**TIER 1 — Hard failures:**
+- Condition: `!rawParsed` (payload is null or undefined)
+  Error message: `"Payload missing or null"`
+  
+- Condition: `rawParsed.schema_version !== CURRENT_SCHEMA_VERSION && rawParsed.schema_version !== "2.0.0"`
+  Error message: `Invalid schema version target. Expected: "${CURRENT_SCHEMA_VERSION}"`
+  
+- Condition: `!Array.isArray(topics) || topics.length === 0` (topics array empty or missing)
+  Error message: `"topics array must not be empty"`
+  
+- Condition: `!topic || typeof topic !== 'object'` (topic at index is not valid object)
+  Error message: `Topic at index ${idx} is not a valid object container`
+  
+- Condition: `topic[field] === undefined || topic[field] === null || topic[field] === ""` for essentialKeys `["title", "slug"]`
+  Error message: `Topic at index ${idx} is missing required field: ${field}`
+
+---
+## SCHEMA: src/services/validation/tier2.js
+
+### Exported Functions
+- `applyTier2AutoFixes(rawParsed)`
+- `normalizeMcqItem(item, topicId, log, locationRef)` (helper)
+
+### TIER 2 — Auto-fixes:
+
+**1. SEO Meta Title Truncation:**
+- Condition: `topic?.seo?.meta_title && topic.seo.meta_title.length > 60`
+  What changes: `topic.seo.meta_title = oldTitle.slice(0, 57) + "..."`
+  Log message: `Truncated meta_title from ${oldTitle.length} to ${topic.seo.meta_title.length} characters.`
+
+**2. SEO Meta Description Truncation:**
+- Condition: `topic?.seo?.meta_description && topic.seo.meta_description.length > 160`
+  What changes: `topic.seo.meta_description = oldDesc.slice(0, 157) + "..."`
+  Log message: `Truncated meta_description from ${oldDesc.length} to ${topic.seo.meta_description.length} characters.`
+
+**3. Slug Sanitization:**
+- Condition: `topic?.slug && !SLUG_REGEX.test(topic.slug)`
+  What changes: `topic.slug = sanitizeSlug(topic.slug)`
+  Log message: `Sanitized invalid slug structure: "${oldSlug}" modified to "${topic.slug}"`
+
+**4. Source Page String-to-Number Coercion (topic level):**
+- Condition: `typeof topic?.source_page_start === 'string'`
+  What changes: `topic.source_page_start = Number.parseInt(topic.source_page_start, 10)`
+  
+- Condition: `typeof topic?.source_page_end === 'string'`
+  What changes: `topic.source_page_end = Number.parseInt(topic.source_page_end, 10)`
+
+**5. Content Block Source Page Coercion:**
+- Condition: `typeof block?.source_page === 'string'`
+  What changes: `block.source_page = Number.parseInt(block.source_page, 10)`
+
+**6. Block Order Sequentialization:**
+- Condition: `block && block.block_order !== targetOrder` (where targetOrder = orderIdx + 1)
+  What changes: `block.block_order = targetOrder`
+  Log message: `Fixed broken gaps or structural duplicates in content_blocks layout coordinates.`
+
+**7. MCQ Answer Lowercasing:**
+- Condition: `/^[A-D]$/.test(ans)` where ans = item.correct_answer
+  What changes: `item.correct_answer = ans.toLowerCase()`
+  Log message: `Normalized key case mapping at ${locationRef} from "${ans}" to "${item.correct_answer}".`
+
+**8. MCQ Answer Resolution from Full Text:**
+- Condition: Option text matches answer text (case-insensitive trim comparison)
+  What changes: `item.correct_answer = key` (the matching option key a/b/c/d)
+  Log message: `Mapped full option text match at ${locationRef} back to canonical option key "${key}".`
+
+**9. MCQ Answer Unmapped Warning:**
+- Condition: Answer doesn't match any option after normalization
+  Log message: `MCQ choice text mismatch flagged at ${locationRef}: "${ans}" does not fit options schemas.`
+
+---
+## SCHEMA: src/services/validation/tier3.js
+
+### Exported Functions
+- `checkTier3Flags(rawTopic, validatedTopic, documentLevel)`
+
+### TIER 3 — Quality flags:
+
+**1. Low Confidence Score:**
+- Condition: `typeof score === 'number' && score < 0.80` where score = documentLevel.confidence_score
+  Flag type: `"low_confidence_score"`
+  Message: `Ingestion layer runtime confidence falls below platform threshold: ${score}`
+
+**2. Ingest Warnings Present:**
+- Condition: `Array.isArray(documentLevel.warnings) && documentLevel.warnings.length > 0`
+  Flag type: `"ingest_warnings_present"`
+  Message: `Upstream pipelines emitted processing warnings: [${documentLevel.warnings.join(', ')}]`
+
+**3. Short Alt Text:**
+- Condition: Figure alt text word count < 20 words
+  Flag type: `"short_alt_text"`
+  Message: `Figure ${fig.figure_number || ''} alternative description text is terse (${wordCount} words). Accessibility pipelines require detailed descriptions.`
+
+**4. Incomplete Formula:**
+- Condition: `!form.latex || !form.text`
+  Flag type: `"incomplete_formula"`
+  Message: `Formula target named "${form.name || 'unnamed'}" lacks LaTeX compilation rendering strings.`
+
+**5. Missing Raw Text:**
+- Condition: `proseWords === 0` where proseWords = word count of validatedTopic.raw_text
+  Flag type: `"missing_raw_text"`
+  Message: `The raw text corpus field is completely empty.`
+
+**6. Low Word Count:**
+- Condition: `proseWords < 50`
+  Flag type: `"low_word_count"`
+  Message: `The text content length is unusually low (${proseWords} words). Verify content block extraction status.`
+
+**7. Irregular MCQ Options (Book MCQs):**
+- Condition: `optKeys.length !== 4` for book_mcqs options
+  Flag type: `"irregular_mcq_options"`
+  Message: `Book MCQ has non-standard options structure configuration (${optKeys.length} choices found instead of 4).`
+
+**8. Irregular MCQ Options (Content Block MCQs):**
+- Condition: `optKeys.length !== 4` for content_blocks of type "mcq"
+  Flag type: `"irregular_mcq_options"`
+  Message: `Content block MCQ contains abnormal options dimensions (${optKeys.length} choices found instead of 4).`
+
+---
+## SCHEMA: src/services/validation/index.js
+
+### Exported Functions
+- `validateQwenOutput(rawJsonStringOrObject)`
+- Re-exports: `DocumentIngestSchema`, `TopicIngestSchema`
+
+### validateQwenOutput(rawJsonStringOrObject)
+**Input:** 
+- `rawJsonStringOrObject`: string (raw JSON) or pre-parsed object
+
+**Returns:**
+```javascript
+// On JSON parse failure:
+{ valid: false, tier: 1, errors: [{ message: "Invalid JSON payload structure: ${err.message}" }] }
+
+// On Tier 1 failure:
+{ valid: false, tier: 1, errors: tier1Result.errors }
+
+// On success:
+{ valid: true, data: repaired, autoFixLog, flags }
+```
+
+**Pipeline Steps:**
+1. Parse JSON if input is string
+2. Execute Tier 1 (hard failures)
+3. Execute Tier 2 (auto-fixes)
+4. Execute Tier 3 (quality flags)
+
+
+---
+## MODEL: src/models/document.model.js
+**Collection name:** `documents`
+**Mongoose model name:** `Document`
+
+### Fields
+| Field | Type | Required | Default | Enum | Notes |
+|-------|------|----------|---------|------|-------|
+| `_id` | String | Yes | — | — | Custom ID |
+| `title` | String | No | — | — | — |
+| `slug` | String | No | — | — | — |
+| `schema_version` | String | No | "2.0.0" | — | — |
+| `schema_type` | String | Yes | — | — | — |
+| `ingest_metadata` | Embedded Schema | No | — | — | See below |
+| `document_metadata` | Embedded Schema | No | — | — | See below |
+| `container` | Embedded Schema | No | — | — | See below |
+| `topic_refs` | Array of embedded schemas | No | — | — | See below |
+| `document_aggregates` | Embedded Schema | No | — | — | See below |
+| `seo_master` | Embedded Schema | No | — | — | See below |
+| `publishing` | Embedded Schema | No | — | — | See below |
+| `version_control` | Embedded Schema | No | — | — | See below |
+| `is_archived` | Boolean | No | false | — | **Indexed** |
+| `archived_at` | Date | No | null | — | — |
+| `type_specific_data` | Mixed | No | {} | — | — |
+| `created_at` | Date | Auto | — | — | From timestamps |
+| `updated_at` | Date | Auto | — | — | From timestamps |
+
+### ingest_metadata Sub-schema
+| Field | Type | Required | Default | Enum | Notes |
+|-------|------|----------|---------|------|-------|
+| `ingest_id` | String | Yes | — | — | — |
+| `engine` | String | No | — | — | — |
+| `model_version` | String | No | — | — | — |
+| `prompt_version` | String | No | — | — | — |
+| `ingest_timestamp` | Date | No | — | — | — |
+| `processing_time_seconds` | Number | No | — | — | — |
+| `source_file_name` | String | No | — | — | — |
+| `source_file_sha256` | String | No | — | — | **Indexed** |
+| `source_file_size_bytes` | Number | No | — | — | — |
+| `page_count` | Number | No | — | — | — |
+| `image_count` | Number | No | — | — | — |
+| `token_count_input` | Number | No | — | — | — |
+| `token_count_output` | Number | No | — | — | — |
+| `confidence_score` | Number | No | — | — | min: 0, max: 1 |
+| `warnings` | [String] | No | — | — | — |
+| `status` | String | No | "pending" | "pending", "processing", "complete", "error" | — |
+| `zod_validation_passed` | Boolean | No | false | — | — |
+| `zod_errors` | [Mixed] | No | — | — | — |
+
+### document_metadata Sub-schema
+| Field | Type | Required | Default | Enum | Notes |
+|-------|------|----------|---------|------|-------|
+| `_id` | String | Yes | — | — | — |
+| `document_id` | String | Yes | — | — | **Indexed** |
+| `title` | String | Yes | — | — | — |
+| `title_vernacular` | String | No | "" | — | — |
+| `subtitle` | String | No | "" | — | — |
+| `document_type` | String | No | — | — | — |
+| `subject` | String | No | — | — | **Indexed** |
+| `subject_slug` | String | No | — | — | **Indexed** |
+| `grade_level` | String | No | — | — | — |
+| `grade_numeric` | Number | No | — | — | **Indexed** |
+| `language` | String | No | "english" | — | — |
+| `script_direction` | String | No | "ltr" | "ltr", "rtl" | — |
+| `secondary_language` | String | No | "" | — | — |
+| `edition_year` | Number | No | — | — | — |
+| `edition_number` | String | No | — | — | — |
+| `isbn` | String | No | "" | — | — |
+| `publisher` | String | No | — | — | — |
+| `board_or_authority` | String | No | — | — | — |
+| `country` | String | No | — | — | — |
+| `curriculum_standard` | String | No | — | — | — |
+| `authors` | [String] | No | — | — | — |
+| `editors` | [String] | No | — | — | — |
+| `reviewers` | [String] | No | — | — | — |
+| `category` | String | No | — | — | — |
+| `sub_category` | String | No | — | — | — |
+| `tags` | [String] | No | — | — | — |
+| `rights_status` | String | No | — | — | — |
+| `cover_image_url` | String | No | "" | — | — |
+| `thumbnail_url` | String | No | "" | — | — |
+| `content_hash` | String | No | — | — | — |
+| `document_version` | String | No | "1.0.0" | — | — |
+| `parent_document_id` | String | No | null | — | — |
+| `is_latest` | Boolean | No | true | — | — |
+| `access_control` | Embedded Schema | No | — | — | See below |
+
+### access_control Sub-schema (within document_metadata)
+| Field | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| `is_premium` | Boolean | No | false | — |
+| `preview_percentage` | Number | No | 100 | min: 0, max: 100 |
+| `paywall_trigger_elements` | [String] | No | — | — |
+| `allowed_roles` | [String] | No | ["anonymous"] | — |
+
+### container Sub-schema
+| Field | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| `_id` | String | Yes | — | — |
+| `container_type` | String | No | "chapter" | — |
+| `number` | Number | Yes | — | — |
+| `display_label` | String | No | — | — |
+| `title` | String | Yes | — | — |
+| `title_vernacular` | String | No | "" | — |
+| `slug` | String | Yes | — | — |
+| `page_range` | Embedded Schema | No | — | See below |
+| `total_pages` | Number | No | — | — |
+| `global_objectives` | [String] | No | — | — |
+| `chapter_summary_verbatim` | String | No | "" | — |
+| `opening_quote` | String | No | "" | — |
+| `opening_image_description` | String | No | "" | — |
+
+### page_range Sub-schema (within container)
+| Field | Type | Required |
+|-------|------|----------|
+| `start` | Number | No |
+| `end` | Number | No |
+
+### topic_refs Array Item Schema
+| Field | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| `_id` | String | Yes | — | — |
+| `slug` | String | Yes | — | — |
+| `slug_global` | String | Yes | — | **Indexed** |
+| `title` | String | Yes | — | — |
+| `display_order` | Number | No | 0 | — |
+| `url_path` | String | Yes | — | — |
+
+### document_aggregates Sub-schema
+| Field | Type | Required | Default |
+|-------|------|----------|---------|
+| `total_topics` | Number | No | 0 |
+| `total_blocks` | Number | No | 0 |
+| `total_formulas` | Number | No | 0 |
+| `total_images` | Number | No | 0 |
+| `total_tables` | Number | No | 0 |
+| `total_mcqs` | Number | No | 0 |
+| `total_short_questions` | Number | No | 0 |
+| `total_numerical_problems` | Number | No | 0 |
+| `total_key_terms` | Number | No | 0 |
+| `total_flashcards` | Number | No | 0 |
+| `all_key_terms` | [String] | No | — |
+| `all_formulas` | [String] | No | — |
+| `all_figures` | [String] | No | — |
+| `difficulty_distribution` | Embedded Schema | No | — |
+
+### difficulty_distribution Sub-schema
+| Field | Type | Default |
+|-------|------|---------|
+| `easy` | Number | 0 |
+| `medium` | Number | 0 |
+| `hard` | Number | 0 |
+
+### seo_master Sub-schema
+| Field | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| `meta_title` | String | No | "" | — |
+| `meta_description` | String | No | "" | — |
+| `canonical_url` | String | No | "" | — |
+| `og_title` | String | No | "" | — |
+| `og_description` | String | No | "" | — |
+| `og_image` | String | No | "" | — |
+| `og_type` | String | No | "article" | — |
+| `twitter_card` | String | No | "summary_large_image" | — |
+| `keywords` | [String] | No | — | — |
+| `focus_keyword` | String | No | "" | — |
+| `robots` | String | No | "index, follow" | — |
+| `sitemap_priority` | Number | No | 0.5 | — |
+| `sitemap_changefreq` | String | No | "monthly" | — |
+| `json_ld_schemas` | [String] | No | — | — |
+| `aeo` | Embedded Schema | No | — | See below |
+| `geo` | Embedded Schema | No | — | See below |
+
+### aeo Sub-schema (within seo_master)
+| Field | Type | Default |
+|-------|------|---------|
+| `primary_question` | String | "" |
+| `featured_snippet_block` | String | "" |
+| `answer_type` | String | "definition" |
+| `entity_type` | String | "Concept" |
+| `faq_count` | Number | 0 |
+
+### geo Sub-schema (within seo_master)
+| Field | Type | Default |
+|-------|------|---------|
+| `entity_name` | String | "" |
+| `entity_type` | String | "EducationalTopic" |
+| `authoritative_source` | String | "" |
+| `citation_format` | String | "" |
+| `trustworthiness_signals` | [String] | — |
+| `llm_summary` | String | "" |
+
+### publishing Sub-schema
+| Field | Type | Required | Default | Enum | Notes |
+|-------|------|----------|---------|------|-------|
+| `status` | String | No | "draft" | "draft", "processing", "published" | **Indexed** |
+| `published_at` | Date | No | null | — | — |
+| `updated_at` | Date | No | null | — | — |
+| `url_path` | String | No | "" | — | — |
+| `export_manifest` | Embedded Schema | No | — | See below |
+| `syndication_targets` | [String] | No | — | — |
+
+### export_manifest Sub-schema (within publishing)
+| Field | Type | Default |
+|-------|------|---------|
+| `web` | String | "not_published" |
+| `json_raw` | String | "not_generated" |
+| `pdf_formatted` | String | "not_generated" |
+| `epub` | String | "not_generated" |
+| `lms_scorm` | String | "not_generated" |
+| `flashcard_deck` | String | "not_generated" |
+| `formula_pack_pdf` | String | "not_generated" |
+
+### version_control Sub-schema
+| Field | Type | Required | Default |
+|-------|------|----------|---------|
+| `document_version` | String | No | "1.0.0" |
+| `schema_version` | String | No | "2.0.0" |
+| `prompt_version` | String | No | — |
+| `commit_timestamp` | Date | No | — |
+| `commit_hash` | String | No | "" |
+| `change_log` | String | No | "" |
+| `previous_version_id` | String | No | null |
+| `is_latest` | Boolean | No | true |
+
+### Indexes
+1. `{ 'ingest_metadata.source_file_sha256': 1 }` — Via field definition
+2. `{ 'document_metadata.document_id': 1 }` — Via field definition
+3. `{ 'document_metadata.subject': 1 }` — Via field definition
+4. `{ 'document_metadata.subject_slug': 1 }` — Via field definition
+5. `{ 'document_metadata.grade_numeric': 1 }` — Via field definition
+6. `{ 'topic_refs.slug_global': 1 }` — Via field definition
+7. `{ is_archived: 1 }` — Via field definition
+8. `{ 'publishing.status': 1 }` — Via field definition
+9. `{ 'document_metadata.subject': 1, 'document_metadata.grade_numeric': 1 }` — Compound index
+10. `{ is_archived: 1 }` — Explicit compound (duplicate of #7)
+
+### Relationships
+None directly (this is a root document collection)
+
+### ID Format
+**_id type:** String (custom, not ObjectId)
+**ID generation:** From `id.service.js`
+
+
+---
+## MODEL: src/models/topic.model.js
+**Collection name:** `topics`
+**Mongoose model name:** `Topic`
+
+### Fields
+| Field | Type | Required | Default | Enum | Notes |
+|-------|------|----------|---------|------|-------|
+| `_id` | String | Yes | — | — | Custom ID |
+| `document_id` | String | Yes | — | — | **Indexed** |
+| `chapter_id` | String | Yes | — | — | — |
+| `parent_topic_id` | String | No | null | — | — |
+| `title` | String | Yes | — | — | — |
+| `title_vernacular` | String | No | "" | — | — |
+| `slug` | String | Yes | — | — | — |
+| `slug_global` | String | Yes | — | — | **Unique, Indexed** |
+| `design_theme` | Embedded Schema | No | — | — | See below |
+| `url_path` | String | Yes | — | — | — |
+| `section_number` | String | No | — | — | — |
+| `display_order` | Number | No | 0 | — | — |
+| `topic_type` | String | No | "content" | "content", "exercise", "intro", "summary", "quran" | **Indexed** |
+| `difficulty` | String | No | "medium" | "easy", "medium", "hard" | — |
+| `difficulty_score` | Number | No | — | — | min: 0, max: 1 |
+| `estimated_read_time_minutes` | Number | No | — | — | — |
+| `bloom_level` | String | No | — | — | — |
+| `subject` | String | No | — | — | **Indexed** |
+| `grade_numeric` | Number | No | — | — | **Indexed** |
+| `language` | String | No | "english" | — | — |
+| `locale` | String | No | "en" | — | **Indexed** |
+| `publishing_status` | String | No | "draft" | "draft", "processing", "published" | **Indexed** |
+| `keywords` | [String] | No | — | — | — |
+| `key_terms_preview` | [String] | No | — | — | — |
+| `formula_count` | Number | No | 0 | — | — |
+| `figure_count` | Number | No | 0 | — | — |
+| `mcq_count` | Number | No | 0 | — | — |
+| `has_interactive` | Boolean | No | false | — | — |
+| `source_page_start` | Number | No | — | — | — |
+| `source_page_end` | Number | No | — | — | — |
+| `seo` | Embedded Schema | No | — | — | See below |
+| `geo` | Embedded Schema | No | — | — | See below |
+| `design_meta` | Embedded Schema | No | — | — | See below |
+| `word_count` | Number | No | 0 | — | — |
+| `internal_links_suggested` | Array of embedded schemas | No | — | — | See below |
+| `version` | String | No | "1.0.0" | — | — |
+| `is_latest` | Boolean | No | true | — | **Indexed** |
+| `is_archived` | Boolean | No | false | — | **Indexed** |
+| `archived_at` | Date | No | null | — | — |
+| `created_at` | Date | Auto | — | — | From timestamps |
+| `updated_at` | Date | Auto | — | — | From timestamps |
+
+### design_theme Sub-schema
+| Field | Type | Required | Default |
+|-------|------|----------|---------|
+| `is_hardcoded` | Boolean | No | false |
+| `palette.primary` | String | No | "var(--fallback-primary)" |
+| `palette.secondary` | String | No | "var(--fallback-secondary)" |
+| `palette.accent` | String | No | "var(--fallback-accent)" |
+| `palette.surface` | String | No | "var(--fallback-surface)" |
+
+### seo Sub-schema
+| Field | Type | Required | Default |
+|-------|------|----------|---------|
+| `meta_title` | String | No | "" |
+| `meta_description` | String | No | "" |
+| `canonical_url` | String | No | "" |
+| `focus_keyword` | String | No | "" |
+| `keywords` | [String] | No | — |
+| `breadcrumb` | [String] | No | — |
+| `json_ld_types` | [String] | No | — |
+
+### geo Sub-schema
+| Field | Type | Required | Default |
+|-------|------|----------|---------|
+| `llm_summary` | String | No | "" |
+| `authoritative_source` | String | No | "" |
+| `citation_format` | String | No | "" |
+| `entity_name` | String | No | "" |
+| `entity_type` | String | No | "" |
+| `trustworthiness_signals` | [String] | No | — |
+| `source_citations` | Array | No | — |
+
+### source_citations Array Item (within geo)
+| Field | Type | Default |
+|-------|------|---------|
+| `verbatim_quote` | String | "" |
+| `page_number` | Number | null |
+| `context` | String | "" |
+
+### design_meta Sub-schema
+| Field | Type | Required | Default | Enum |
+|-------|------|----------|---------|------|
+| `primary_color_theme` | String | No | — | — |
+| `icon_suggestion` | String | No | — | — |
+| `layout_template` | String | No | "standard" | "standard", "two-col", "formula-heavy", "image-heavy", "comparison" |
+| `animation_complexity` | String | No | — | — |
+
+### internal_links_suggested Array Item
+| Field | Type | Default |
+|-------|------|---------|
+| `slug` | String | "" |
+| `title` | String | "" |
+| `url_path` | String | "" |
+| `relevance` | String | "" |
+
+### Indexes
+1. `{ document_id: 1 }` — Via field definition
+2. `{ slug_global: 1 }` — Unique index via field definition
+3. `{ topic_type: 1 }` — Via field definition
+4. `{ subject: 1 }` — Via field definition
+5. `{ grade_numeric: 1 }` — Via field definition
+6. `{ locale: 1 }` — Via field definition
+7. `{ publishing_status: 1 }` — Via field definition
+8. `{ is_latest: 1 }` — Via field definition
+9. `{ is_archived: 1 }` — Via field definition
+10. `{ subject: 1, grade_numeric: 1 }` — Compound index
+11. `{ difficulty_score: 1 }` — Explicit index
+12. `{ document_id: 1, is_latest: -1 }` — Compound index
+13. `{ document_id: 1, is_archived: 1 }` — Compound index
+
+### Relationships
+| Field | References Collection | Type | Notes |
+|-------|----------------------|------|-------|
+| `document_id` | documents | String | Foreign key to Document |
+| `chapter_id` | documents.container | String | Reference to container in Document |
+| `parent_topic_id` | topics | String | Self-reference for nested topics |
+
+### ID Format
+**_id type:** String (custom, not ObjectId)
+**ID generation:** From `id.service.js`
+
+---
+## MODEL: src/models/topicContent.model.js
+**Collection name:** `topic_content`
+**Mongoose model name:** `TopicContent`
+
+### Fields
+| Field | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| `_id` | String | Yes | — | Custom ID |
+| `topic_id` | String | Yes | — | **Indexed** |
+| `document_id` | String | Yes | — | **Indexed** |
+| `raw_text` | String | No | — | — |
+| `clean_html` | String | No | — | — |
+| `content_blocks` | [Mixed] | No | [] | — |
+| `formulas` | Array of embedded schemas | No | — | See below |
+| `key_terms` | Array of embedded schemas | No | — | See below |
+| `examples` | Array of embedded schemas | No | — | See below |
+| `callouts` | Array of embedded schemas | No | — | See below |
+| `ai_answer_hub` | Array of embedded schemas | No | — | See below |
+| `faq` | Array of embedded schemas | No | — | See below |
+| `entity_extraction` | Embedded Schema | No | — | See below |
+| `downloadable_outputs` | Embedded Schema | No | — | See below |
+| `source_citations` | Array of embedded schemas | No | — | See below |
+| `quran_data` | Mixed | No | null | Must NOT contain Arabic glyphs |
+| `created_at` | Date | Auto | — | From timestamps |
+| `updated_at` | Date | Auto | — | From timestamps |
+
+### formulas Array Item Schema
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `_id` | String | Yes | — |
+| `formula_id` | String | No | — |
+| `name` | String | No | — |
+| `latex` | String | No | — |
+| `text` | String | No | — |
+| `variables` | Array | No | See below |
+| `formula_type` | String | No | — |
+| `subject_area` | String | No | — |
+| `source_page` | Number | No | — |
+| `block_order_ref` | Number | No | — |
+
+### variables Array Item (within formulas)
+| Field | Type | Required |
+|-------|------|----------|
+| `symbol` | String | No |
+| `name` | String | No |
+| `unit` | String | No |
+| `description` | String | No |
+
+### key_terms Array Item Schema
+| Field | Type | Required |
+|-------|------|----------|
+| `term` | String | No |
+| `definition` | String | No |
+| `term_type` | String | No |
+| `first_occurrence_page` | Number | No |
+| `related_terms` | [String] | No |
+
+### examples Array Item Schema
+| Field | Type | Required |
+|-------|------|----------|
+| `_id` | String | Yes |
+| `example_number` | String | No |
+| `title` | String | No |
+| `problem_text` | String | No |
+| `solution_steps` | [String] | No |
+| `final_answer` | String | No |
+| `formula_used` | String | No |
+| `source_page` | Number | No |
+
+### callouts Array Item Schema
+| Field | Type | Required |
+|-------|------|----------|
+| `_id` | String | Yes |
+| `variant` | String | No |
+| `title` | String | No |
+| `text` | String | No |
+| `source_page` | Number | No |
+| `block_order_ref` | Number | No |
+
+### ai_answer_hub Array Item Schema
+| Field | Type | Required |
+|-------|------|----------|
+| `question_intent` | String | No |
+| `answer_markdown` | String | No |
+| `answer_plain` | String | No |
+| `answer_type` | String | No |
+| `confidence` | Number | No |
+| `citation` | String | No |
+
+### faq Array Item Schema
+| Field | Type | Required |
+|-------|------|----------|
+| `_id` | String | Yes |
+| `question` | String | No |
+| `answer` | String | No |
+| `schema_type` | String | No |
+| `source_page` | Number | No |
+
+### entity_extraction Sub-schema
+| Field | Type | Required |
+|-------|------|----------|
+| `core_concepts` | [String] | No |
+| `scientific_laws` | [String] | No |
+| `historical_figures` | [String] | No |
+| `units_and_standards` | [String] | No |
+| `instruments_mentioned` | [String] | No |
+| `cross_concept_links` | Array | No |
+
+### cross_concept_links Array Item (within entity_extraction)
+| Field | Type | Default | Notes |
+|-------|------|---------|-------|
+| `target_entity` | String | — | — |
+| `target_entity_id` | String | null | — |
+| `slug_ref` | String | — | — |
+| `fallback_anchor_text` | String | — | — |
+| `relationship_type` | String | — | — |
+| `resolved` | Boolean | false | **Indexed** |
+| `resolved_url` | String | null | — |
+| `context` | String | — | — |
+
+### downloadable_outputs Sub-schema
+| Field | Type | Required | Default |
+|-------|------|----------|---------|
+| `formula_pack` | [String] | No | — |
+| `cheat_sheet_summary` | String | No | "" |
+| `exam_hot_spots` | [String] | No | — |
+| `revision_notes_markdown` | String | No | "" |
+
+### source_citations Array Item Schema
+| Field | Type | Required |
+|-------|------|----------|
+| `verbatim_quote` | String | No |
+| `page_number` | Number | No |
+| `context` | String | No |
+
+### Pre-validate Hook
+**Condition:** If `quran_data !== null && quran_data !== undefined`
+**Check:** Tests for Arabic glyphs using regex `/[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF]/`
+**Error:** `'quran_data must not contain Arabic glyphs — Urdu translation only, position-based mapping required'`
+
+### Indexes
+1. `{ topic_id: 1 }` — Via field definition
+2. `{ document_id: 1 }` — Via field definition
+3. `{ 'entity_extraction.cross_concept_links.resolved': 1 }` — Via field definition
+
+### Relationships
+| Field | References Collection | Type | Notes |
+|-------|----------------------|------|-------|
+| `topic_id` | topics | String | Foreign key to Topic |
+| `document_id` | documents | String | Foreign key to Document |
+
+### ID Format
+**_id type:** String (custom, not ObjectId)
+**ID generation:** From `id.service.js`
+
