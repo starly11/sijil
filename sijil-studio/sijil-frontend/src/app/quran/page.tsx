@@ -2,7 +2,7 @@ import { Metadata } from 'next';
 import Link from 'next/link';
 import { api } from '@/lib/api/client';
 import { API_ENDPOINTS } from '@/lib/api/endpoints';
-import type { QuranListResponse } from '@/lib/api/types';
+import type { Surah } from '@/lib/api/types';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { BookOpen, Sparkles } from 'lucide-react';
@@ -13,9 +13,9 @@ export const metadata: Metadata = {
 };
 
 export default async function QuranIndexPage() {
-  const res = await api.get<QuranListResponse>(API_ENDPOINTS.QURAN_LIST);
+  const res = await api.get<Surah[]>(API_ENDPOINTS.QURAN_SURAHS);
   
-  if (!res.success || !res.data?.chapters) {
+  if (!res.success || !Array.isArray(res.data)) {
     return (
       <div className="container mx-auto px-4 py-8">
         <div className="text-center py-12">
@@ -25,7 +25,7 @@ export default async function QuranIndexPage() {
     );
   }
 
-  const chapters = res.data.chapters;
+  const chapters = res.data;
 
   return (
     <div className="container mx-auto px-4 py-8 space-y-8">

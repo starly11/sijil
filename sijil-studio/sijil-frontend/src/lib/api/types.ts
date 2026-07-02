@@ -78,6 +78,7 @@ export interface TopicPage {
 }
 
 export interface Surah {
+  id: number;
   number: number;
   name: string;
   englishName: string;

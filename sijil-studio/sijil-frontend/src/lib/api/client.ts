@@ -14,6 +14,9 @@ export async function apiFetchClient<T>(
   endpoint: string,
   options?: RequestInit
 ): Promise<APIResponse<T>> {
+  if (!endpoint) {
+    throw new Error('API endpoint is required');
+  }
   const normalizedBase = siteConfig.apiBaseUrl.replace(/\/$/, '');
   const normalizedEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
   const targetUrl = `${normalizedBase}${normalizedEndpoint}`;

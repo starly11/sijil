@@ -2,9 +2,11 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
+import { Search } from 'lucide-react';
 import { useSearchSuggestions } from '@/hooks/use-search-suggestions';
 import { SearchSuggestions } from './search-suggestions';
 import { RecentSearches } from './recent-searches';
+import { Button } from '@/components/ui/button';
 
 interface SearchBarProps {
   defaultValue?: string;
@@ -97,34 +99,30 @@ export function SearchBar({ defaultValue = '' }: SearchBarProps) {
   return (
     <div className="relative max-w-2xl mx-auto" ref={containerRef}>
       <form onSubmit={handleSubmit} className="relative">
-        <input
-          ref={inputRef}
-          type="text"
-          value={query}
-          onChange={handleChange}
-          onKeyDown={handleKeyDown}
-          onFocus={() => query && setIsOpen(true)}
-          placeholder="Search across Quran, Hadith, Fiqh, and more..."
-          className="w-full px-4 py-3 pl-12 pr-4 text-lg border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-          aria-label="Search"
-          aria-autocomplete="list"
-          aria-controls="search-suggestions"
-          aria-expanded={isOpen}
-        />
-        <svg
-          className="absolute left-4 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-        </svg>
-        <button
-          type="submit"
-          className="absolute right-2 top-1/2 transform -translate-y-1/2 px-4 py-1.5 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-        >
-          Search
-        </button>
+        <div className="flex items-center w-full px-4 py-2 border border-input rounded-lg bg-background focus-within:ring-2 focus-within:ring-ring focus-within:border-ring transition-colors">
+          <Search className="h-5 w-5 text-muted-foreground mr-3" />
+          <input
+            ref={inputRef}
+            type="text"
+            value={query}
+            onChange={handleChange}
+            onKeyDown={handleKeyDown}
+            onFocus={() => query && setIsOpen(true)}
+            placeholder="Search across Quran, Hadith, Fiqh, and more..."
+            className="flex-1 bg-transparent border-0 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-0 text-lg"
+            aria-label="Search"
+            aria-autocomplete="list"
+            aria-controls="search-suggestions"
+            aria-expanded={isOpen}
+          />
+          <Button
+            type="submit"
+            variant="default"
+            className="ml-2"
+          >
+            Search
+          </Button>
+        </div>
       </form>
 
       {(isOpen && (suggestions.length > 0 || isLoading)) && (

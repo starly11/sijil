@@ -2,6 +2,7 @@
 
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import { SearchFilters as SearchFiltersType } from '@/types/search';
+import { Button } from '@/components/ui/button';
 
 interface SearchFiltersProps {
   filters: {
@@ -36,10 +37,10 @@ export function SearchFilters({ filters, currentFilters }: SearchFiltersProps) {
   };
 
   return (
-    <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-6">
+    <div className="bg-card border border-border rounded-lg p-4 space-y-6">
       {/* Content Type */}
       <div>
-        <h3 className="text-sm font-semibold text-gray-900 mb-3">Content Type</h3>
+        <h3 className="text-sm font-semibold text-foreground mb-3">Content Type</h3>
         <div className="space-y-2">
           {filters.types.map(type => (
             <label key={type} className="flex items-center cursor-pointer">
@@ -48,9 +49,9 @@ export function SearchFilters({ filters, currentFilters }: SearchFiltersProps) {
                 name="type"
                 checked={currentFilters.type === type}
                 onChange={() => handleFilterChange('type', currentFilters.type === type ? null : type)}
-                className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+                className="h-4 w-4 text-primary focus:ring-ring border-input"
               />
-              <span className="ml-2 text-sm text-gray-700 capitalize">{type}</span>
+              <span className="ml-2 text-sm text-muted-foreground capitalize">{type}</span>
             </label>
           ))}
         </div>
@@ -58,7 +59,7 @@ export function SearchFilters({ filters, currentFilters }: SearchFiltersProps) {
 
       {/* Subjects */}
       <div>
-        <h3 className="text-sm font-semibold text-gray-900 mb-3">Subject</h3>
+        <h3 className="text-sm font-semibold text-foreground mb-3">Subject</h3>
         <div className="space-y-2">
           {filters.subjects.map(subject => (
             <label key={subject} className="flex items-center cursor-pointer">
@@ -66,9 +67,9 @@ export function SearchFilters({ filters, currentFilters }: SearchFiltersProps) {
                 type="checkbox"
                 checked={currentFilters.subject === subject}
                 onChange={() => handleFilterChange('subject', currentFilters.subject === subject ? null : subject)}
-                className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                className="h-4 w-4 text-primary focus:ring-ring border-input rounded"
               />
-              <span className="ml-2 text-sm text-gray-700">{subject}</span>
+              <span className="ml-2 text-sm text-muted-foreground">{subject}</span>
             </label>
           ))}
         </div>
@@ -76,7 +77,7 @@ export function SearchFilters({ filters, currentFilters }: SearchFiltersProps) {
 
       {/* Grade Level */}
       <div>
-        <h3 className="text-sm font-semibold text-gray-900 mb-3">Grade Level</h3>
+        <h3 className="text-sm font-semibold text-foreground mb-3">Grade Level</h3>
         <div className="space-y-2">
           {filters.grades.map(grade => (
             <label key={grade} className="flex items-center cursor-pointer">
@@ -84,9 +85,9 @@ export function SearchFilters({ filters, currentFilters }: SearchFiltersProps) {
                 type="checkbox"
                 checked={currentFilters.grade === grade}
                 onChange={() => handleFilterChange('grade', currentFilters.grade === grade ? null : grade)}
-                className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                className="h-4 w-4 text-primary focus:ring-ring border-input rounded"
               />
-              <span className="ml-2 text-sm text-gray-700">Grade {grade}</span>
+              <span className="ml-2 text-sm text-muted-foreground">Grade {grade}</span>
             </label>
           ))}
         </div>
@@ -94,7 +95,8 @@ export function SearchFilters({ filters, currentFilters }: SearchFiltersProps) {
 
       {/* Clear Filters */}
       {(currentFilters.type || currentFilters.subject || currentFilters.grade) && (
-        <button
+        <Button
+          variant="ghost"
           onClick={() => {
             const params = new URLSearchParams(searchParams);
             params.delete('type');
@@ -103,10 +105,10 @@ export function SearchFilters({ filters, currentFilters }: SearchFiltersProps) {
             params.set('page', '1');
             router.push(`${pathname}?${params.toString()}`);
           }}
-          className="w-full px-4 py-2 text-sm text-blue-600 hover:text-blue-800 font-medium"
+          className="w-full"
         >
           Clear all filters
-        </button>
+        </Button>
       )}
     </div>
   );

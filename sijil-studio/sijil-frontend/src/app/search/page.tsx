@@ -1,5 +1,6 @@
 import { Metadata } from 'next';
 import { Suspense } from 'react';
+import { Search } from 'lucide-react';
 import { SearchBar } from '@/components/search/search-bar';
 import { SearchResults } from '@/components/search/search-results';
 import { SearchFilters } from '@/components/search/search-filters';
@@ -44,7 +45,7 @@ export default async function SearchPage({ searchParams }: PageProps) {
   return (
     <div className="container py-8">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold mb-4">Search</h1>
+        <h1 className="text-3xl font-serif font-bold text-foreground mb-4">Search</h1>
         <SearchBar defaultValue={query} />
       </div>
 
@@ -66,7 +67,7 @@ export default async function SearchPage({ searchParams }: PageProps) {
                 time={0}
                 query={query}
               />
-              <Suspense fallback={<div className="space-y-4">{[...Array(5)].map((_, i) => (<div key={i} className="h-32 bg-gray-100 rounded animate-pulse" />))}</div>}>
+              <Suspense fallback={<div className="space-y-4">{[...Array(5)].map((_, i) => (<div key={i} className="h-32 bg-muted rounded animate-pulse" />))}</div>}>
                 <SearchResults 
                   results={resultsData.data}
                   currentPage={resultsData.meta?.page || 1}
@@ -79,11 +80,9 @@ export default async function SearchPage({ searchParams }: PageProps) {
 
           {!query && (
             <div className="text-center py-12">
-              <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-              </svg>
-              <h3 className="mt-2 text-sm font-medium text-gray-900">Start searching</h3>
-              <p className="mt-1 text-sm text-gray-500">Enter a query to search across all content.</p>
+              <Search className="mx-auto h-12 w-12 text-muted-foreground" />
+              <h3 className="mt-2 text-sm font-medium text-foreground">Start searching</h3>
+              <p className="mt-1 text-sm text-muted-foreground">Enter a query to search across all content.</p>
             </div>
           )}
         </main>
