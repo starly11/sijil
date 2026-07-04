@@ -3,7 +3,8 @@ import React from 'react';
 interface HeadingBlockProps {
   block: {
     level?: number;
-    content?: string;
+    text?: string;
+    slug_anchor?: string;
   };
 }
 
@@ -14,5 +15,8 @@ export function HeadingBlock({ block }: HeadingBlockProps) {
     level === 2 ? 'text-2xl mt-6 mb-3' :
     level === 3 ? 'text-xl mt-5 mb-2' : 'text-lg mt-4 mb-2'
   }`;
-  return React.createElement(`h${level}`, { className: classNames }, block.content);
+  return React.createElement(`h${level}`, { 
+    className: classNames,
+    id: block.slug_anchor
+  }, block.text);
 }

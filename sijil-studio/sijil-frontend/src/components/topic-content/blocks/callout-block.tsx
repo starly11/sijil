@@ -1,8 +1,10 @@
 interface CalloutBlockProps {
   block: {
+    callout_id?: string;
     variant?: string;
     title?: string;
-    content?: string;
+    text?: string;
+    icon?: string;
   };
 }
 
@@ -21,8 +23,8 @@ export function CalloutBlock({ block }: CalloutBlockProps) {
           {block.title}
         </h4>
       )}
-      {block.content && (
-        <p className="text-muted-foreground">{block.content}</p>
+      {block.text && (
+        <p className="text-muted-foreground">{block.text}</p>
       )}
     </div>
   );

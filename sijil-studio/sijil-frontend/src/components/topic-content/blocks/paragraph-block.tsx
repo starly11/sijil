@@ -1,9 +1,11 @@
 interface ParagraphBlockProps {
   block: {
-    content?: string;
+    text?: string;
+    contains_formula?: boolean;
+    key_terms_in_text?: string[];
   };
 }
 
 export function ParagraphBlock({ block }: ParagraphBlockProps) {
-  return <p className="mb-4">{block.content}</p>;
+  return <p className="mb-4">{block.text}</p>;
 }

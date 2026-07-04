@@ -1,14 +1,14 @@
-interface TableBlockProps {
+interface ComparisonViewBlockProps {
   block: {
-    table_id?: string;
     caption?: string;
     headers?: string[];
     rows?: string[][];
+    design_hint?: string;
   };
 }
 
-export function TableBlock({ block }: TableBlockProps) {
-  if (!block.headers || !block.rows) return null;
+export function ComparisonViewBlock({ block }: ComparisonViewBlockProps) {
+  if (!block.headers || !block.rows || block.rows.length === 0) return null;
 
   return (
     <figure className="my-8 overflow-x-auto">
@@ -38,6 +38,11 @@ export function TableBlock({ block }: TableBlockProps) {
         <figcaption className="text-center text-sm text-muted-foreground mt-2">
           {block.caption}
         </figcaption>
+      )}
+      {block.design_hint && (
+        <p className="text-xs text-muted-foreground mt-2 italic">
+          Design hint: {block.design_hint}
+        </p>
       )}
     </figure>
   );
