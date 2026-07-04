@@ -3,13 +3,15 @@ interface MCQBlockProps {
     mcq_id?: string;
     question_number?: string;
     question_text?: string;
-    options?: Array<{
-      option_letter: string;
-      option_text: string;
-    }>;
-    correct_answer?: string;
+    options?: {
+      a: string;
+      b: string;
+      c: string;
+      d: string;
+    };
+    correct_answer?: "a" | "b" | "c" | "d";
     explanation?: string;
-    difficulty?: string;
+    difficulty?: "easy" | "medium" | "hard";
     bloom_level?: string;
     source_page?: number;
     past_paper_years?: string[];
@@ -18,6 +20,15 @@ interface MCQBlockProps {
 
 export function MCQBlock({ block }: MCQBlockProps) {
   if (!block.question_text) return null;
+
+  const optionsArray = block.options 
+    ? [
+        { option_letter: 'a', option_text: block.options.a },
+        { option_letter: 'b', option_text: block.options.b },
+        { option_letter: 'c', option_text: block.options.c },
+        { option_letter: 'd', option_text: block.options.d },
+      ]
+    : [];
 
   return (
     <div className="my-6 p-4 bg-slate-50 dark:bg-slate-950/30 border border-slate-200 dark:border-slate-800 rounded-md">
@@ -38,9 +49,9 @@ export function MCQBlock({ block }: MCQBlockProps) {
       
       <p className="text-muted-foreground mb-4">{block.question_text}</p>
       
-      {block.options && block.options.length > 0 && (
+      {optionsArray.length > 0 && (
         <div className="space-y-2 mb-4">
-          {block.options.map((option, index) => (
+          {optionsArray.map((option, index) => (
             <div 
               key={index}
               className={`p-3 rounded-md border ${
@@ -49,7 +60,7 @@ export function MCQBlock({ block }: MCQBlockProps) {
                   : 'border-border'
               }`}
             >
-              <span className="font-medium">{option.option_letter}.</span>{' '}
+              <span className="font-medium">{option.option_letter.toUpperCase()}.</span>{' '}
               <span>{option.option_text}</span>
             </div>
           ))}
@@ -66,6 +77,18 @@ export function MCQBlock({ block }: MCQBlockProps) {
       {block.past_paper_years && block.past_paper_years.length > 0 && (
         <div className="mt-2 text-xs text-muted-foreground">
           <strong>Past Papers:</strong> {block.past_paper_years.join(', ')}
+        </div>
+      )}
+      
+      {block.bloom_level && (
+        <div className="mt-2 text-xs text-muted-foreground">
+          <strong>Bloom Level:</strong> {block.bloom_level}
+        </div>
+      )}
+      
+      {block.source_page && (
+        <div className="mt-1 text-xs text-muted-foreground">
+          <strong>Source:</strong> Page {block.source_page}
         </div>
       )}
     </div>
