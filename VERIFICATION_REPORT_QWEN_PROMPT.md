@@ -446,16 +446,31 @@ const variantStyles: Record<string, string> = {
 ## FRONTEND COMPATIBILITY ANALYSIS
 ## ═══════════════════════════════════════════════════════════════════
 
-### Working Components (5):
-1. `heading-block.tsx` - Needs field rename: `content` → `text`
-2. `paragraph-block.tsx` - Needs field rename: `content` → `text`
-3. `callout-block.tsx` - Needs field rename: `content` → `text`
-4. `figure-block.tsx` - ✅ Compatible (uses `image_path_local`)
-5. `formula-block.tsx` - Needs `display_mode` field added to schema
+### ⚠️ FRONTEND FIELD NAME MAPPING
 
-### Broken Components (2):
-1. `table-block.tsx` - Expects `data` array, schema has `headers`+`rows`
-2. `example-block.tsx` - Expects simple `content`, schema has structured fields
+The frontend renders content from these fields:
+
+| Block Type | Schema Field | Frontend Expects | Status |
+|------------|--------------|------------------|--------|
+| Paragraph | `text` | `text` | ✅ Will be fixed in frontend |
+| Heading | `text` | `text` | ✅ Will be fixed in frontend |
+| Callout | `text` | `text` | ✅ Will be fixed in frontend |
+| Example | `problem_text`, `solution_steps`, `final_answer` | Same structured fields | ✅ Will be fixed in frontend |
+| Table | `headers`, `rows` | `data` array | ✅ Will be fixed in API layer |
+
+**NOTE:** The frontend will be updated to match the schema field names. 
+Produce the JSON as specified in the schema.
+
+### Working Components (5):
+1. `heading-block.tsx` - ✅ Compatible (frontend will use `text`)
+2. `paragraph-block.tsx` - ✅ Compatible (frontend will use `text`)
+3. `callout-block.tsx` - ✅ Compatible (frontend will use `text`)
+4. `figure-block.tsx` - ✅ Compatible (uses `image_path_local`)
+5. `formula-block.tsx` - ⚠️ Needs `display_mode` field added to schema
+
+### Components Requiring API Transformation (2):
+1. `table-block.tsx` - API will transform `headers`+`rows` → `data` array
+2. `example-block.tsx` - Frontend will be updated to use structured fields
 
 ### Missing Components (10):
 - `mcq-block.tsx` (content version, not assessment)
