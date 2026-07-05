@@ -54,10 +54,10 @@ router.post('/import/preview', requireAdmin, async (req, res, next) => {
         // Map backend response to frontend expectations
         const frontendResponse = {
             batch_id: result.batch_id,
-            documents_found: result.total_documents,
-            topics_found: result.total_topics,
-            assets_found: result.total_assets,
-            assessments_found: result.total_assessments,
+            documents_found: result.documents_found,
+            topics_found: result.topics_found,
+            assets_found: result.assets_found,
+            assessments_found: result.assessments_found,
             files_preview: result.files_preview,
             documents: result.documents,
             errors: result.errors,
