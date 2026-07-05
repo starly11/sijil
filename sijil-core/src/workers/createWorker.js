@@ -4,16 +4,33 @@ import * as logger from '../utils/logger.js';
 
 /**
  * Instantiates a configured BullMQ Worker, complete with robust event telemetry reporting listeners.
+ * Handles Redis disconnections gracefully to prevent worker crashes.
  * @param {string} queueName - Registry space target defining job domains to pull.
  * @param {Function} processor - Path or method execution wrapper parsing active payloads.
  * @returns {Worker} Fully operational background engine consumer instance.
  */
 export function createWorker(queueName, processor) {
-    const dedicatedWorkerConnection = createBullMQConnection();
+    let dedicatedWorkerConnection;
+    
+    try {
+        dedicatedWorkerConnection = createBullMQConnection();
+    } catch (err) {
+        logger.error({ queue: queueName, error: err.message }, `Failed to initialize Redis connection for queue [${queueName}]`);
+        // Return a mock worker if Redis fails
+        return {
+            name: queueName,
+            close: async () => {},
+            on: () => {}
+        };
+    }
 
     const worker = new Worker(queueName, processor, {
         connection: dedicatedWorkerConnection,
-        concurrency: 5, // Safely balances CPU consumption bounds across simultaneous tasks
+        concurrency: 5,
+        settings: {
+            maxStalledCount: 3,
+            stalledInterval: 30000,
+        }
     });
 
     // Structural Telemetry Events Listeners Hook
@@ -41,7 +58,12 @@ export function createWorker(queueName, processor) {
     });
 
     worker.on('error', (error) => {
-        logger.error({ queue: queueName, event: 'worker_error', error: error.message }, `Internal pipeline structural exception inside queue [${queueName}]: ${error.stack}`);
+        // Handle specific Redis errors gracefully without crashing
+        if (error.code === 'ETIMEDOUT' || error.message.includes('Connection is closed') || error.message.includes('EAI_AGAIN')) {
+            logger.warn({ queue: queueName, event: 'redis_error', error: error.message }, `Redis connection issue for queue [${queueName}]. BullMQ will attempt auto-reconnect.`);
+        } else {
+            logger.error({ queue: queueName, event: 'worker_error', error: error.message }, `Internal pipeline structural exception inside queue [${queueName}]: ${error.stack}`);
+        }
     });
 
     return worker;
