@@ -187,12 +187,13 @@ export async function previewImport({
             repo_info: repo,
             commit_sha: scanResult.commit_sha,
             documents: files,
-            total_documents: validationResult.total_documents,
-            total_topics: validationResult.total_topics,
-            total_assets: validationResult.total_assets,
-            total_assessments: validationResult.total_assessments,
-            errors: validationResult.errors,
-            warnings: validationResult.warnings
+            files_preview,
+            total_documents: documents.length,
+            total_topics,
+            total_assets,
+            total_assessments,
+            errors: allErrors,
+            warnings: allWarnings
         };
 
     } catch (error) {
