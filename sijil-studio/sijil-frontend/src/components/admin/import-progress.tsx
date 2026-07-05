@@ -9,6 +9,34 @@ interface ImportProgressProps {
 }
 
 export const ImportProgress: React.FC<ImportProgressProps> = ({ status }) => {
+  console.log('===== [ImportProgress] RENDER =====');
+  console.log('status:', status);
+  console.log('status.progress:', status.progress);
+  console.log('typeof status.progress:', typeof status.progress);
+  
+  // Handle progress being an object (with scanning, validating, importing, indexing)
+  let progressValue = 0;
+  if (typeof status.progress === 'number') {
+    progressValue = status.progress;
+  } else if (status.progress && typeof status.progress === 'object') {
+    // Calculate average progress from stages
+    const stages = status.progress;
+    const stageValues = Object.values(stages).map((stage: any) => 
+      stage?.percentage || 0
+    );
+    progressValue = stageValues.length > 0 
+      ? Math.round(stageValues.reduce((a, b) => a + b, 0) / stageValues.length)
+      : 0;
+  }
+  
+  // Safely access counts
+  const counts = status.counts || {
+    total_documents: 0,
+    imported_documents: 0,
+    failed_documents: 0,
+    total_topics: 0
+  };
+
   return (
     <Card>
       <CardHeader>
@@ -21,30 +49,30 @@ export const ImportProgress: React.FC<ImportProgressProps> = ({ status }) => {
         <div>
           <div className="flex items-center justify-between mb-2">
             <span className="text-sm font-medium">Progress</span>
-            <span className="text-sm text-gray-500">{status.progress}%</span>
+            <span className="text-sm text-gray-500">{progressValue}%</span>
           </div>
-          <Progress value={status.progress} />
+          <Progress value={progressValue} />
         </div>
 
         <div className="grid grid-cols-4 gap-4">
           <div className="text-center">
-            <div className="text-2xl font-bold">{status.counts.total_documents}</div>
+            <div className="text-2xl font-bold">{counts.total_documents}</div>
             <div className="text-sm text-gray-500">Documents</div>
           </div>
           <div className="text-center">
             <div className="text-2xl font-bold text-green-600">
-              {status.counts.imported_documents}
+              {counts.imported_documents}
             </div>
             <div className="text-sm text-gray-500">Imported</div>
           </div>
           <div className="text-center">
             <div className="text-2xl font-bold text-red-600">
-              {status.counts.failed_documents}
+              {counts.failed_documents}
             </div>
             <div className="text-sm text-gray-500">Failed</div>
           </div>
           <div className="text-center">
-            <div className="text-2xl font-bold">{status.counts.total_topics}</div>
+            <div className="text-2xl font-bold">{counts.total_topics}</div>
             <div className="text-sm text-gray-500">Topics</div>
           </div>
         </div>
@@ -58,7 +86,9 @@ export const ImportProgress: React.FC<ImportProgressProps> = ({ status }) => {
                   key={index}
                   className="p-3 bg-red-50 dark:bg-red-900/20 rounded-lg text-sm"
                 >
-                  <div className="text-red-600 dark:text-red-400">{JSON.stringify(error)}</div>
+                  <div className="text-red-600 dark:text-red-400">
+                    {typeof error === 'object' ? JSON.stringify(error) : String(error)}
+                  </div>
                 </div>
               ))}
             </div>

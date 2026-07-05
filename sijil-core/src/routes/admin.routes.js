@@ -131,25 +131,32 @@ router.get('/import/:batchId', requireAdmin, async (req, res, next) => {
                 status: batch.status,
                 repo_url: batch.repo_url,
                 commit_sha: batch.commit_sha,
-                progress: batch.progress,
+                progress: batch.progress ? Math.round(
+                    (
+                        (batch.progress.scanning?.percentage || 0) +
+                        (batch.progress.validating?.percentage || 0) +
+                        (batch.progress.importing?.percentage || 0) +
+                        (batch.progress.indexing?.percentage || 0)
+                    ) / 4
+                ) : 0,
                 counts: {
-                    total_documents: batch.total_documents,
-                    total_topics: batch.total_topics,
-                    total_assets: batch.total_assets,
-                    total_assessments: batch.total_assessments,
-                    imported_documents: batch.imported_documents,
-                    imported_topics: batch.imported_topics,
-                    imported_assets: batch.imported_assets,
-                    imported_assessments: batch.imported_assessments,
-                    failed_documents: batch.failed_documents,
-                    failed_topics: batch.failed_topics,
-                    failed_assets: batch.failed_assets,
-                    failed_assessments: batch.failed_assessments
+                    total_documents: batch.total_documents || 0,
+                    total_topics: batch.total_topics || 0,
+                    total_assets: batch.total_assets || 0,
+                    total_assessments: batch.total_assessments || 0,
+                    imported_documents: batch.imported_documents || 0,
+                    imported_topics: batch.imported_topics || 0,
+                    imported_assets: batch.imported_assets || 0,
+                    imported_assessments: batch.imported_assessments || 0,
+                    failed_documents: batch.failed_documents || 0,
+                    failed_topics: batch.failed_topics || 0,
+                    failed_assets: batch.failed_assets || 0,
+                    failed_assessments: batch.failed_assessments || 0
                 },
-                successful_files: batch.successful_files,
-                failed_files: batch.failed_files,
-                warnings: batch.warnings,
-                errors: batch.errors,
+                successful_files: batch.successful_files || [],
+                failed_files: batch.failed_files || [],
+                warnings: batch.warnings || [],
+                errors: batch.errors || [],
                 report: batch.report,
                 started_at: batch.started_at,
                 completed_at: batch.completed_at,

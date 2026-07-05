@@ -12,6 +12,17 @@ import * as logger from '../../utils/logger.js';
  * @returns {{owner: string, name: string, branch?: string}}
  */
 export function parseRepoUrl(repoUrl) {
+    // Handle /blob/ URLs (single file view) - extract repo info only
+    const blobPattern = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/blob\/([^/]+)\/(.+)$/;
+    const blobMatch = repoUrl.match(blobPattern);
+    if (blobMatch) {
+        return {
+            owner: blobMatch[1],
+            name: blobMatch[2],
+            branch: blobMatch[3] || 'main'
+        };
+    }
+    
     const patterns = [
         /^https:\/\/github\.com\/([^/]+)\/([^/]+)(?:\/tree\/([^/]+))?/,
         /^git@github\.com:([^/]+)\/([^/]+)\.git$/,
@@ -29,7 +40,7 @@ export function parseRepoUrl(repoUrl) {
         }
     }
 
-    throw new Error('Invalid GitHub repository URL format');
+    throw new Error('Invalid GitHub repository URL format. Expected: https://github.com/owner/repo or owner/repo');
 }
 
 /**
