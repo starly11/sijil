@@ -12,9 +12,16 @@ import * as logger from '../../utils/logger.js';
  * @returns {{owner: string, name: string, branch?: string, path?: string}}
  */
 export function parseRepoUrl(repoUrl) {
+    if (!repoUrl || typeof repoUrl !== 'string') {
+        throw new Error('Invalid GitHub repository URL format. Expected: https://github.com/owner/repo or owner/repo');
+    }
+    
+    // Trim whitespace and remove trailing slashes
+    const url = repoUrl.trim().replace(/\/+$/, '');
+    
     // Handle /blob/ URLs (single file view) - extract repo info AND file path
     const blobPattern = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/blob\/([^/]+)\/(.+)$/;
-    const blobMatch = repoUrl.match(blobPattern);
+    const blobMatch = url.match(blobPattern);
     if (blobMatch) {
         return {
             owner: blobMatch[1],
@@ -26,7 +33,7 @@ export function parseRepoUrl(repoUrl) {
     
     // Handle /tree/ URLs (directory view) - extract repo info AND directory path
     const treePattern = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/tree\/([^/]+)\/(.+)$/;
-    const treeMatch = repoUrl.match(treePattern);
+    const treeMatch = url.match(treePattern);
     if (treeMatch) {
         return {
             owner: treeMatch[1],
@@ -43,7 +50,7 @@ export function parseRepoUrl(repoUrl) {
     ];
 
     for (const pattern of patterns) {
-        const match = repoUrl.match(pattern);
+        const match = url.match(pattern);
         if (match) {
             return {
                 owner: match[1],
