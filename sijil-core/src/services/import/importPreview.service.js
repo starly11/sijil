@@ -186,12 +186,12 @@ export async function previewImport({
             batch_id: batchId,
             repo_info: repo,
             commit_sha: scanResult.commit_sha,
-            documents: files,
+            documents_found: documents.length,
+            topics_found: total_topics,
+            assets_found: total_assets,
+            assessments_found: total_assessments,
             files_preview,
-            total_documents: documents.length,
-            total_topics,
-            total_assets,
-            total_assessments,
+            documents,
             errors: allErrors,
             warnings: allWarnings
         };
