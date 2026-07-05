@@ -20,7 +20,7 @@ const router = Router();
  */
 router.post('/import/preview', requireAdmin, async (req, res, next) => {
     try {
-        const { repo_url, branch, path } = req.body;
+        const { repo_url } = req.body;
         
         if (!repo_url) {
             return res.status(400).json({ 
@@ -38,10 +38,14 @@ router.post('/import/preview', requireAdmin, async (req, res, next) => {
             });
         }
 
+        // Parse URL to extract branch and path automatically
+        const { parseRepoUrl } = await import('../services/import/repositoryScanner.service.js');
+        const parsedUrl = parseRepoUrl(repo_url);
+        
         const result = await previewImport({
             repo_url,
-            branch,
-            path,
+            branch: parsedUrl.branch,
+            path: parsedUrl.path,
             github_token,
             admin_id: req.admin_id || 'bootstrap_admin',
             ip_address: req.ip

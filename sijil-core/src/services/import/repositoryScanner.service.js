@@ -9,22 +9,35 @@ import * as logger from '../../utils/logger.js';
 /**
  * Parse GitHub repository URL
  * @param {string} repoUrl - GitHub repository URL
- * @returns {{owner: string, name: string, branch?: string}}
+ * @returns {{owner: string, name: string, branch?: string, path?: string}}
  */
 export function parseRepoUrl(repoUrl) {
-    // Handle /blob/ URLs (single file view) - extract repo info only
+    // Handle /blob/ URLs (single file view) - extract repo info AND file path
     const blobPattern = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/blob\/([^/]+)\/(.+)$/;
     const blobMatch = repoUrl.match(blobPattern);
     if (blobMatch) {
         return {
             owner: blobMatch[1],
             name: blobMatch[2],
-            branch: blobMatch[3] || 'main'
+            branch: blobMatch[3] || 'main',
+            path: blobMatch[4] // Extract the file path
+        };
+    }
+    
+    // Handle /tree/ URLs (directory view) - extract repo info AND directory path
+    const treePattern = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/tree\/([^/]+)\/(.+)$/;
+    const treeMatch = repoUrl.match(treePattern);
+    if (treeMatch) {
+        return {
+            owner: treeMatch[1],
+            name: treeMatch[2],
+            branch: treeMatch[3] || 'main',
+            path: treeMatch[4] // Extract the directory path
         };
     }
     
     const patterns = [
-        /^https:\/\/github\.com\/([^/]+)\/([^/]+)(?:\/tree\/([^/]+))?/,
+        /^https:\/\/github\.com\/([^/]+)\/([^/]+)(?:\/tree\/([^/]+))?(?:\/(.+))?/,
         /^git@github\.com:([^/]+)\/([^/]+)\.git$/,
         /^([^/]+)\/([^/]+)$/
     ];
@@ -35,7 +48,8 @@ export function parseRepoUrl(repoUrl) {
             return {
                 owner: match[1],
                 name: match[2].replace('.git', ''),
-                branch: match[3] || 'main'
+                branch: match[3] || 'main',
+                path: match[4] || null // Optional path
             };
         }
     }
@@ -137,11 +151,15 @@ export async function scanRepository(token, repo, pathFilter = null) {
 
         // Apply path filter if provided
         if (pathFilter) {
-            // Normalize both paths for comparison
+            // Check if it's a single file match (no trailing slash and exact match)
+            const isSingleFile = !pathFilter.endsWith('/') && filePath === pathFilter;
+            
+            // Check if it's a directory match (starts with path or path with trailing slash)
             const normalizedPathFilter = pathFilter.endsWith('/') ? pathFilter : pathFilter + '/';
-            const normalizedFilePath = filePath.endsWith('/') ? filePath : filePath + '/';
-            // Check if file path starts with the filter path OR matches exactly
-            if (!filePath.startsWith(pathFilter) && filePath !== pathFilter) {
+            const isDirectoryMatch = filePath.startsWith(normalizedPathFilter);
+            
+            // Skip if neither single file nor in directory
+            if (!isSingleFile && !isDirectoryMatch) {
                 continue;
             }
         }
