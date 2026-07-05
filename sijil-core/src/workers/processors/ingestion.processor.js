@@ -18,22 +18,31 @@ export default async function processIngestion(job) {
     // Original single document ingestion flow
     logger.info({ queue: 'ingestion', jobId: job.id, event: 'processor_start' }, `Starting ingestion task execution for ID: ${job.data.ingest_id}`);
 
-    await job.updateProgress(10);
-    // Simulating internal parsing delays
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    try {
+        await job.updateProgress(10);
 
-    await job.updateProgress(50);
-    await new Promise((resolve) => setTimeout(resolve, 300));
+        // Call the actual ingestDocument service
+        const result = await ingestDocument({
+            payload: job.data.payload,
+            source: job.data.source || 'queue_ingestion'
+        });
 
-    await job.updateProgress(100);
+        await job.updateProgress(100);
 
-    return {
-        queue: 'ingestion',
-        jobId: job.id,
-        status: 'completed',
-        processed_at: new Date().toISOString(),
-        note: "Phase 5 infrastructure active. The comprehensive document splitting and validation routine launches in Phase 6.",
-    };
+        logger.info({ queue: 'ingestion', jobId: job.id, success: result.success }, 'Single document ingestion completed');
+
+        return {
+            queue: 'ingestion',
+            jobId: job.id,
+            status: result.success ? 'completed' : 'failed',
+            processed_at: new Date().toISOString(),
+            result: result
+        };
+
+    } catch (error) {
+        logger.error({ err: error, queue: 'ingestion', jobId: job.id }, 'Single document ingestion failed');
+        throw error;
+    }
 }
 
 /**

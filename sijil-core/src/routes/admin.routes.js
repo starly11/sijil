@@ -3,6 +3,11 @@ import { previewImport } from '../services/import/importPreview.service.js';
 import { executeImport } from '../services/import/importExecutor.service.js';
 import ImportBatch from '../models/importBatch.model.js';
 import AuditLog from '../models/auditLog.model.js';
+import Document from '../models/document.model.js';
+import Topic from '../models/topic.model.js';
+import TopicContent from '../models/topicContent.model.js';
+import TopicAsset from '../models/topicAsset.model.js';
+import TopicAssessment from '../models/topicAssessment.model.js';
 import { requireAdmin } from '../middleware/requireAdmin.js';
 import * as logger from '../utils/logger.js';
 
@@ -308,6 +313,67 @@ router.get('/import/:batchId/report', requireAdmin, async (req, res, next) => {
 
     } catch (error) {
         logger.error({ err: error }, 'Get report failed');
+        next(error);
+    }
+});
+
+
+
+/**
+ * GET /admin/preview/:documentId
+ * Preview document with all topics for admin review
+ */
+router.get('/preview/:documentId', requireAdmin, async (req, res, next) => {
+    try {
+        const { documentId } = req.params;
+
+        const doc = await Document.findOne({
+            $or: [{ document_id: documentId }, { _id: documentId }]
+        });
+
+        if (!doc) {
+            return res.status(404).json({
+                success: false,
+                error: 'Document not found'
+            });
+        }
+
+        // Get all topics for this document
+        const topics = await Topic.find({ document_id: doc.document_id })
+            .sort({ display_order: 1 })
+            .lean();
+
+        // Get topic counts
+        const topicIds = topics.map(t => t._id);
+        const [contentBlocksCount, assetsCount, assessmentsCount] = await Promise.all([
+            TopicContent.countDocuments({ topic_id: { $in: topicIds } }),
+            TopicAsset.countDocuments({ topic_id: { $in: topicIds } }),
+            TopicAssessment.countDocuments({ topic_id: { $in: topicIds } })
+        ]);
+
+        return res.status(200).json({
+            success: true,
+            data: {
+                document: doc,
+                topics: topics.map(t => ({
+                    ...t,
+                    stats: {
+                        content_blocks: contentBlocksCount,
+                        assets: assetsCount,
+                        assessments: assessmentsCount
+                    }
+                })),
+                total_topics: topics.length,
+                stats: {
+                    total_content_blocks: contentBlocksCount,
+                    total_assets: assetsCount,
+                    total_assessments: assessmentsCount
+                }
+            }
+        });
+
+    } catch (error) {
+        logger.error({ err: error }, 'Preview failed');
         next(error);
     }
 });
