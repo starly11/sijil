@@ -182,28 +182,6 @@ export async function previewImport({
             };
         });
 
-        // Build files_preview array
-        const files_preview = files.map(filePath => {
-            // Find errors/warnings for this file
-            const fileErrors = validationResult.errors.filter(e => e.file === filePath);
-            const fileWarnings = validationResult.warnings.filter(w => w.file === filePath);
-            
-            let status = 'valid';
-            let error = null;
-            
-            if (fileErrors.length > 0) {
-                status = 'invalid';
-                error = fileErrors[0].message;
-            }
-            
-            return {
-                path: filePath,
-                type: 'document',
-                status,
-                error
-            };
-        });
-
         return {
             batch_id: batchId,
             repo_info: repo,
