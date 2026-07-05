@@ -109,13 +109,16 @@ export default function ImportPage() {
       setLogs([]);
       setIsStreaming(true);
       addLog('info', 'Starting repository scan...', { repo: repoUrl, branch });
-      
+
+      console.log('=== Starting Preview ===');
+      console.log('Request payload:', { repo_url: repoUrl, branch, path: path || undefined });
+
       const response = await previewMutation.mutateAsync({
         repo_url: repoUrl,
         branch,
         path: path || undefined,
       });
-      
+
       addLog('success', 'Repository scan completed!', {
         documents: response.data?.documents_found,
         topics: response.data?.topics_found,
@@ -131,9 +134,17 @@ export default function ImportPage() {
       }
       
       addLog('info', 'Ready to start import. Click "Start Import" to begin.');
+      
+      console.log('=== Preview Response ===');
+      console.log('Full response:', response);
+      console.log('response.data:', response.data);
+      console.log('Set previewData to:', response.data);
     } catch (error: any) {
       addLog('error', 'Preview failed', error.message || String(error));
       setIsStreaming(false);
+      console.error('=== Preview Failed ===');
+      console.error('Error object:', error);
+      console.error('Error message:', (error as Error).message); 
     } finally {
       setIsStreaming(false);
     }
@@ -289,7 +300,7 @@ export default function ImportPage() {
               onChange={(e) => setRepoUrl(e.target.value)}
               disabled={!!batchId && isStreaming}
               className="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white disabled:opacity-50"
-              placeholder="https://github.com/username/repo"
+              placeholder="https://github.com/username/repo "
             />
           </div>
 
