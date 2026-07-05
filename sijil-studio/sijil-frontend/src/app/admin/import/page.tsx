@@ -19,16 +19,33 @@ export default function ImportPage() {
   const previewMutation = useBatchImportPreview();
   const startMutation = useBatchImportStart();
 
+  console.log('===== [FRONTEND] ImportPage RENDER =====');
+  console.log('previewData:', previewData);
+  console.log('previewData is truthy:', !!previewData);
+  console.log('previewMutation:', previewMutation);
+  console.log('previewMutation.isPending:', previewMutation.isPending);
+
   const handlePreview = async () => {
     try {
+      console.log('===== [FRONTEND] handlePreview CALLED =====');
+      console.log('Repo URL:', repoUrl);
+      
       const response = await previewMutation.mutateAsync({
         repo_url: repoUrl,
         branch,
         path: path || undefined,
       });
-      setPreviewData(response.data);
+      
+      console.log('===== [FRONTEND] previewMutation SUCCESS =====');
+      console.log('Full response:', response);
+      console.log('typeof response:', typeof response);
+      console.log('response keys:', Object.keys(response || {}));
+      
+      setPreviewData(response);
+      console.log('previewData just set to:', response.data);
     } catch (error) {
-      console.error('Preview failed:', error);
+      console.error('===== [FRONTEND] previewMutation FAILED =====');
+      console.error('Error:', error);
     }
   };
 
@@ -52,6 +69,20 @@ export default function ImportPage() {
           Import content from GitHub repositories
         </p>
       </div>
+
+      {/* DEBUG UI */}
+      <Card className="bg-yellow-50 border-yellow-300">
+        <CardHeader>
+          <CardTitle className="text-yellow-800">DEBUG INFO</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="text-sm font-mono text-yellow-800">
+            <p>previewData exists: {JSON.stringify(!!previewData)}</p>
+            <p>previewMutation.isPending: {JSON.stringify(previewMutation.isPending)}</p>
+            <p>previewData: {JSON.stringify(previewData, null, 2)}</p>
+          </div>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

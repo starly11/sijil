@@ -28,28 +28,28 @@ export const ImportProgress: React.FC<ImportProgressProps> = ({ status }) => {
 
         <div className="grid grid-cols-4 gap-4">
           <div className="text-center">
-            <div className="text-2xl font-bold">{status.total_files}</div>
-            <div className="text-sm text-gray-500">Total Files</div>
-          </div>
-          <div className="text-center">
-            <div className="text-2xl font-bold">{status.processed_files}</div>
-            <div className="text-sm text-gray-500">Processed</div>
+            <div className="text-2xl font-bold">{status.counts.total_documents}</div>
+            <div className="text-sm text-gray-500">Documents</div>
           </div>
           <div className="text-center">
             <div className="text-2xl font-bold text-green-600">
-              {status.success_count}
+              {status.counts.imported_documents}
             </div>
-            <div className="text-sm text-gray-500">Success</div>
+            <div className="text-sm text-gray-500">Imported</div>
           </div>
           <div className="text-center">
             <div className="text-2xl font-bold text-red-600">
-              {status.failure_count}
+              {status.counts.failed_documents}
             </div>
             <div className="text-sm text-gray-500">Failed</div>
           </div>
+          <div className="text-center">
+            <div className="text-2xl font-bold">{status.counts.total_topics}</div>
+            <div className="text-sm text-gray-500">Topics</div>
+          </div>
         </div>
 
-        {status.errors.length > 0 && (
+        {status.errors && status.errors.length > 0 && (
           <div>
             <h3 className="text-sm font-semibold mb-2">Errors</h3>
             <div className="space-y-2 max-h-64 overflow-y-auto">
@@ -58,8 +58,7 @@ export const ImportProgress: React.FC<ImportProgressProps> = ({ status }) => {
                   key={index}
                   className="p-3 bg-red-50 dark:bg-red-900/20 rounded-lg text-sm"
                 >
-                  <div className="font-medium">{error.file_path}</div>
-                  <div className="text-red-600 dark:text-red-400">{error.error}</div>
+                  <div className="text-red-600 dark:text-red-400">{JSON.stringify(error)}</div>
                 </div>
               ))}
             </div>

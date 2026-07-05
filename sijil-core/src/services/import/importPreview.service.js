@@ -1,7 +1,8 @@
 import { fetch } from 'undici';
 import * as logger from '../../utils/logger.js';
 import { parseRepoUrl, scanRepository, validateRepositoryStructure } from './repositoryScanner.service.js';
-import { fetchFileContent, validateBatch } from './importValidation.service.js';
+import { fetchFileContent } from './importValidation.service.js';
+import { validateQwenOutput } from '../../services/validation/index.js';
 import ImportBatch from '../../models/importBatch.model.js';
 import AuditLog from '../../models/auditLog.model.js';
 import { generateId } from '../../services/id.service.js';
@@ -23,15 +24,9 @@ function generateBatchId() {
  * @param {string} params.ip_address - Request IP address
  * @returns {Promise<{
  *   batch_id: string,
- *   repo_info: Object,
- *   commit_sha: string,
- *   documents: Array,
- *   total_documents: number,
- *   total_topics: number,
- *   total_assets: number,
- *   total_assessments: number,
- *   errors: Array,
- *   warnings: Array
+ *   documents_found: number,
+ *   topics_found: number,
+ *   files_preview: Array
  * }>}
  */
 export async function previewImport({ 
@@ -59,19 +54,68 @@ export async function previewImport({
         // Fetch and validate document contents
         const documents = [];
         const files = [];
+        const allErrors = [];
+        const allWarnings = [];
 
         for (const filePath of scanResult.documents) {
             try {
                 const doc = await fetchFileContent(github_token, repo.owner, repo.name, filePath);
                 documents.push(doc);
                 files.push(filePath);
+
+                // Use the same validation as actual ingestion!
+                const validationResult = await validateQwenOutput(doc);
+                if (!validationResult.valid) {
+                    allErrors.push(...(validationResult.errors || []).map(e => ({
+                        file: filePath,
+                        message: e.message || JSON.stringify(e)
+                    })));
+                }
+                if (validationResult.flags && validationResult.flags.length > 0) {
+                    allWarnings.push(...validationResult.flags.map(w => ({
+                        file: filePath,
+                        message: JSON.stringify(w)
+                    })));
+                }
             } catch (error) {
-                logger.error({ err: error, file: filePath }, 'Failed to fetch document');
+                logger.error({ 
+                    err: error, 
+                    message: error.message, 
+                    stack: error.stack, 
+                    file: filePath 
+                }, 'Failed to fetch document');
+                allErrors.push({ file: filePath, message: error.message });
             }
         }
 
-        // Validate all documents
-        const validationResult = validateBatch(documents, files);
+        // Calculate stats from actual documents
+        let total_topics = 0;
+        let total_assets = 0;
+        let total_assessments = 0;
+
+        for (const doc of documents) {
+            const topics = doc.topics || doc.container?.topics || [];
+            total_topics += topics.length;
+            
+            for (const topic of topics) {
+                // Count assets
+                if (topic.assets) {
+                    total_assets += topic.assets.length;
+                }
+                
+                // Also count images/figures in content blocks
+                if (topic.content_blocks) {
+                    total_assets += topic.content_blocks.filter(
+                        block => block.type === 'image' || block.type === 'figure'
+                    ).length;
+                }
+
+                // Count assessments (mcqs, flashcards, etc)
+                const mcqs = topic.assessments?.mcqs || [];
+                const flashcards = topic.assessments?.flashcards || [];
+                total_assessments += mcqs.length + flashcards.length;
+            }
+        }
 
         // Create ImportBatch record in PENDING state
         batchId = generateBatchId();
@@ -82,26 +126,21 @@ export async function previewImport({
             repo_name: repo.name,
             commit_sha: scanResult.commit_sha,
             status: 'PENDING',
-            total_documents: validationResult.total_documents,
-            total_topics: validationResult.total_topics,
-            total_assets: validationResult.total_assets,
-            total_assessments: validationResult.total_assessments,
-            warnings: validationResult.warnings.map(w => ({
-                type: w.field?.includes('alt_text') ? 'missing_alt' : 
-                      w.field?.includes('formula') ? 'missing_formula' :
-                      w.field?.includes('mcq') ? 'missing_mcq' :
-                      w.field?.includes('duplicate') ? 'duplicate_id' : 'schema_warning',
+            total_documents: documents.length,
+            total_topics,
+            total_assets,
+            total_assessments,
+            warnings: allWarnings.map(w => ({
+                type: 'schema_warning',
                 message: w.message,
                 file_path: w.file,
-                topic_id: w.topic_id || null
+                topic_id: null
             })),
-            errors: validationResult.errors.map(e => ({
-                type: e.field?.includes('schema') ? 'schema_error' :
-                      e.field?.includes('Missing required') ? 'missing_required' :
-                      e.field?.includes('Duplicate') ? 'invalid_reference' : 'ingestion_failed',
+            errors: allErrors.map(e => ({
+                type: 'schema_error',
                 message: e.message,
                 file_path: e.file,
-                details: { field: e.field }
+                details: null
             }))
         });
 
@@ -111,27 +150,42 @@ export async function previewImport({
             admin_id,
             ip_address,
             batch_id: batchId,
-            result: validationResult.valid ? 'success' : 'partial',
+            result: allErrors.length === 0 ? 'success' : 'partial',
             input_data: { repo_url },
             metadata: {
-                documents: validationResult.total_documents,
-                topics: validationResult.total_topics,
-                assets: validationResult.total_assets,
-                assessments: validationResult.total_assessments
+                documents: documents.length,
+                topics: total_topics,
+                assets: total_assets,
+                assessments: total_assessments
             }
+        });
+
+        // Build files_preview array that frontend expects
+        const files_preview = files.map(filePath => {
+            // Find errors/warnings for this file
+            const fileErrors = allErrors.filter(e => e.file === filePath);
+            
+            let status = 'valid';
+            let error = null;
+            
+            if (fileErrors.length > 0) {
+                status = 'invalid';
+                error = fileErrors[0].message;
+            }
+            
+            return {
+                path: filePath,
+                type: 'document',
+                status,
+                error
+            };
         });
 
         return {
             batch_id: batchId,
-            repo_info: repo,
-            commit_sha: scanResult.commit_sha,
-            documents: files,
-            total_documents: validationResult.total_documents,
-            total_topics: validationResult.total_topics,
-            total_assets: validationResult.total_assets,
-            total_assessments: validationResult.total_assessments,
-            errors: validationResult.errors,
-            warnings: validationResult.warnings
+            documents_found: documents.length,
+            topics_found: total_topics,
+            files_preview
         };
 
     } catch (error) {

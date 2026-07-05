@@ -7,9 +7,17 @@ interface ImportPreviewProps {
 }
 
 export const ImportPreview: React.FC<ImportPreviewProps> = ({ data }) => {
+  console.log('=== ImportPreview Component Received Data ===');
+  console.log('data:', data);
+  
   if (!data) {
+    console.log('ImportPreview: No data provided');
     return null;
   }
+
+  console.log('Documents found:', data.documents_found);
+  console.log('Topics found:', data.topics_found);
+  console.log('Files preview:', data.files_preview);
 
   return (
     <Card>
@@ -30,30 +38,34 @@ export const ImportPreview: React.FC<ImportPreviewProps> = ({ data }) => {
 
         <div>
           <h3 className="text-sm font-semibold mb-2">Files Preview</h3>
-          <div className="space-y-2">
-            {data.files_preview.map((file, index) => (
-              <div
-                key={index}
-                className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-lg"
-              >
-                <div>
-                  <div className="font-medium">{file.path}</div>
-                  <div className="text-sm text-gray-500">{file.type}</div>
-                </div>
-                <span
-                  className={`px-2 py-1 rounded text-xs font-medium ${
-                    file.status === 'valid'
-                      ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-                      : file.status === 'invalid'
-                      ? 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
-                      : 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
-                  }`}
+          {data.files_preview && data.files_preview.length > 0 ? (
+            <div className="space-y-2">
+              {data.files_preview.map((file, index) => (
+                <div
+                  key={index}
+                  className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-lg"
                 >
-                  {file.status}
-                </span>
-              </div>
-            ))}
-          </div>
+                  <div>
+                    <div className="font-medium">{file.path}</div>
+                    <div className="text-sm text-gray-500">{file.type}</div>
+                  </div>
+                  <span
+                    className={`px-2 py-1 rounded text-xs font-medium ${
+                      file.status === 'valid'
+                        ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                        : file.status === 'invalid'
+                        ? 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
+                        : 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
+                    }`}
+                  >
+                    {file.status}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="p-3 text-gray-500">No files to preview</div>
+          )}
         </div>
       </CardContent>
     </Card>

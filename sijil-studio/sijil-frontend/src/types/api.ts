@@ -132,18 +132,33 @@ export interface BatchImportRequest {
 
 export interface BatchImportStatus {
   batch_id: string;
-  status: ImportStatus;
+  status: 'PENDING' | 'VALIDATING' | 'DOWNLOADING' | 'IMPORTING' | 'INDEXING' | 'COMPLETED' | 'FAILED';
+  repo_url: string;
+  commit_sha?: string;
   progress: number;
-  total_files: number;
-  processed_files: number;
-  success_count: number;
-  failure_count: number;
-  errors: Array<{
-    file_path: string;
-    error: string;
-  }>;
-  created_at: string;
+  counts: {
+    total_documents: number;
+    total_topics: number;
+    total_assets: number;
+    total_assessments: number;
+    imported_documents: number;
+    imported_topics: number;
+    imported_assets: number;
+    imported_assessments: number;
+    failed_documents: number;
+    failed_topics: number;
+    failed_assets: number;
+    failed_assessments: number;
+  };
+  successful_files: string[];
+  failed_files: string[];
+  warnings?: any[];
+  errors?: any[];
+  report?: any;
+  started_at?: string;
   completed_at?: string;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface AnalyticsOverview {

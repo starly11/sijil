@@ -16,22 +16,34 @@ export const useBatchImportPreview = () => {
   return useMutation({
     mutationFn: async (
       data: BatchImportPreviewRequest
-    ): Promise<BatchImportPreviewResponse> => {
-      const resp = await apiFetchClient<BatchImportPreviewResponse>(API_ENDPOINTS.IMPORT_PREVIEW, {
+    ): Promise<any> => {
+      console.log('===== [HOOK] useBatchImportPreview mutationFn called =====');
+      console.log('Request data:', data);
+      
+      const resp = await apiFetchClient(API_ENDPOINTS.IMPORT_PREVIEW, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(data),
       });
-      if (!resp.data) {
-        throw new Error('No data from API');
-      }
+      
+      console.log('===== [HOOK] useBatchImportPreview API response =====');
+      console.log('Full response:', resp);
+      console.log('resp.success:', resp.success);
+      console.log('resp.data:', resp.data);
+      
       return resp.data;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
+      console.log('===== [HOOK] useBatchImportPreview onSuccess =====');
+      console.log('Success data:', data);
       queryClient.invalidateQueries({ queryKey: ['import'] });
     },
+    onError: (error) => {
+      console.error('===== [HOOK] useBatchImportPreview onError =====');
+      console.error('Error:', error);
+    }
   });
 };
 
@@ -72,10 +84,12 @@ export const useBatchImportStatus = (batchId: string | null) => {
     refetchInterval: (query) => {
       const queryData = query.state.data;
       if (!queryData) return 2000;
+      const statusLower = String(queryData.status).toLowerCase();
       if (
-        queryData.status === 'completed' ||
-        queryData.status === 'failed' ||
-        queryData.status === 'cancelled'
+        statusLower === 'completed' ||
+        statusLower === 'failed' ||
+        statusLower === 'cancelled' ||
+        statusLower === 'partial_success'
       ) {
         return false;
       }
