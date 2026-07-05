@@ -31,6 +31,8 @@ function generateBatchId() {
  */
 export async function previewImport({ 
     repo_url, 
+    branch,
+    path,
     github_token,
     admin_id = 'bootstrap_admin',
     ip_address = null
@@ -41,8 +43,13 @@ export async function previewImport({
         // Parse repository URL
         const repo = parseRepoUrl(repo_url);
         
-        // Scan repository
-        const scanResult = await scanRepository(github_token, repo);
+        // Override branch if provided
+        if (branch) {
+            repo.branch = branch;
+        }
+        
+        // Scan repository with optional path filter
+        const scanResult = await scanRepository(github_token, repo, path);
         
         // Validate repository structure
         const structureValidation = validateRepositoryStructure(scanResult);
@@ -78,13 +85,7 @@ export async function previewImport({
                     })));
                 }
             } catch (error) {
-                logger.error({ 
-                    err: error, 
-                    message: error.message, 
-                    stack: error.stack, 
-                    file: filePath 
-                }, 'Failed to fetch document');
-                allErrors.push({ file: filePath, message: error.message });
+                logger.error({ err: error, file: filePath }, 'Failed to fetch document');
             }
         }
 
@@ -181,15 +182,43 @@ export async function previewImport({
             };
         });
 
+        // Build files_preview array
+        const files_preview = files.map(filePath => {
+            // Find errors/warnings for this file
+            const fileErrors = validationResult.errors.filter(e => e.file === filePath);
+            const fileWarnings = validationResult.warnings.filter(w => w.file === filePath);
+            
+            let status = 'valid';
+            let error = null;
+            
+            if (fileErrors.length > 0) {
+                status = 'invalid';
+                error = fileErrors[0].message;
+            }
+            
+            return {
+                path: filePath,
+                type: 'document',
+                status,
+                error
+            };
+        });
+
         return {
             batch_id: batchId,
-            documents_found: documents.length,
-            topics_found: total_topics,
-            files_preview
+            repo_info: repo,
+            commit_sha: scanResult.commit_sha,
+            documents: files,
+            total_documents: validationResult.total_documents,
+            total_topics: validationResult.total_topics,
+            total_assets: validationResult.total_assets,
+            total_assessments: validationResult.total_assessments,
+            errors: validationResult.errors,
+            warnings: validationResult.warnings
         };
 
     } catch (error) {
-        logger.error({ err: error, repo_url, batch_id: batchId }, 'Preview import failed');
+        logger.error({ err: error, message: error.message, stack: error.stack, repo_url, batch_id: batchId }, 'Preview import failed');
 
         // Update batch status if created
         if (batchId) {

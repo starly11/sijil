@@ -22,9 +22,13 @@ export async function apiFetchClient<T>(
   const targetUrl = `${normalizedBase}${normalizedEndpoint}`;
   console.log('Calling API:', targetUrl);
 
-  const defaultHeaders = {
+  const defaultHeaders: Record<string, string> = {
     'Content-Type': 'application/json',
   };
+  
+  if (siteConfig.adminSecret) {
+    defaultHeaders['x-admin-secret'] = siteConfig.adminSecret;
+  }
 
   const response = await fetch(targetUrl, {
     ...options,

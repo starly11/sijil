@@ -105,6 +105,7 @@ export async function fetchLatestCommit(token, commitUrl) {
  * Scan repository for content files
  * @param {string} token - GitHub PAT
  * @param {{owner: string, name: string, branch: string}} repo - Parsed repository info
+ * @param {string} [pathFilter] - Optional path filter to only scan specific folder/file
  * @returns {Promise<{
  *   commit_sha: string,
  *   documents: Array,
@@ -113,8 +114,8 @@ export async function fetchLatestCommit(token, commitUrl) {
  *   total_files: number
  * }>}
  */
-export async function scanRepository(token, repo) {
-    logger.info({ repo: `${repo.owner}/${repo.name}` }, 'Starting repository scan');
+export async function scanRepository(token, repo, pathFilter = null) {
+    logger.info({ repo: `${repo.owner}/${repo.name}`, pathFilter }, 'Starting repository scan');
 
     const urls = buildApiUrls(repo);
     
@@ -132,27 +133,38 @@ export async function scanRepository(token, repo) {
     for (const file of tree) {
         if (file.type !== 'blob') continue;
 
-        const path = file.path;
+        const filePath = file.path;
+
+        // Apply path filter if provided
+        if (pathFilter) {
+            // Normalize both paths for comparison
+            const normalizedPathFilter = pathFilter.endsWith('/') ? pathFilter : pathFilter + '/';
+            const normalizedFilePath = filePath.endsWith('/') ? filePath : filePath + '/';
+            // Check if file path starts with the filter path OR matches exactly
+            if (!filePath.startsWith(pathFilter) && filePath !== pathFilter) {
+                continue;
+            }
+        }
 
         // Detect manifest files
-        if (path.endsWith('manifest.json')) {
-            manifests.push(path);
+        if (filePath.endsWith('manifest.json')) {
+            manifests.push(filePath);
             continue;
         }
 
         // Detect JSON content files (excluding config)
-        if (path.endsWith('.json') && !path.includes('node_modules') && !path.startsWith('.')) {
+        if (filePath.endsWith('.json') && !filePath.includes('node_modules') && !filePath.startsWith('.')) {
             // Skip non-content JSON files
-            if (path.includes('package.json') || path.includes('tsconfig.json')) {
+            if (filePath.includes('package.json') || filePath.includes('tsconfig.json')) {
                 continue;
             }
-            documents.push(path);
+            documents.push(filePath);
             continue;
         }
 
         // Detect image assets
-        if (/\.(png|jpg|jpeg|gif|svg|webp)$/i.test(path)) {
-            assets.push(path);
+        if (/\.(png|jpg|jpeg|gif|svg|webp)$/i.test(filePath)) {
+            assets.push(filePath);
         }
     }
 

@@ -9,27 +9,27 @@ interface ImportProgressProps {
 }
 
 export const ImportProgress: React.FC<ImportProgressProps> = ({ status }) => {
-  console.log('===== [ImportProgress] RENDER =====');
-  console.log('status:', status);
-  console.log('status.progress:', status.progress);
-  console.log('typeof status.progress:', typeof status.progress);
+  // Calculate total files processed from the arrays
+  const totalProcessed = (status.successful_files?.length || 0) + (status.failed_files?.length || 0);
   
-  // Handle progress being an object (with scanning, validating, importing, indexing)
+  // Robust handling for progress being a flat number or a multi-stage object
   let progressValue = 0;
   if (typeof status.progress === 'number') {
     progressValue = status.progress;
   } else if (status.progress && typeof status.progress === 'object') {
-    // Calculate average progress from stages
-    const stages = status.progress;
-    const stageValues = Object.values(stages).map((stage: any) => 
-      stage?.percentage || 0
-    );
-    progressValue = stageValues.length > 0 
-      ? Math.round(stageValues.reduce((a, b) => a + b, 0) / stageValues.length)
-      : 0;
+    // If it's a specific stage object, check for a global 'importing' stage or average them out
+    const stages = status.progress as Record<string, { percentage?: number }>;
+    if (stages.importing && typeof stages.importing.percentage === 'number') {
+      progressValue = stages.importing.percentage;
+    } else {
+      const stageValues = Object.values(stages).map((stage) => stage?.percentage || 0);
+      progressValue = stageValues.length > 0 
+        ? Math.round(stageValues.reduce((a, b) => a + b, 0) / stageValues.length)
+        : 0;
+    }
   }
-  
-  // Safely access counts
+
+  // Fallbacks for standard metric counts
   const counts = status.counts || {
     total_documents: 0,
     imported_documents: 0,
@@ -46,6 +46,7 @@ export const ImportProgress: React.FC<ImportProgressProps> = ({ status }) => {
         </div>
       </CardHeader>
       <CardContent className="space-y-6">
+        {/* Progress Bar */}
         <div>
           <div className="flex items-center justify-between mb-2">
             <span className="text-sm font-medium">Progress</span>
@@ -54,34 +55,36 @@ export const ImportProgress: React.FC<ImportProgressProps> = ({ status }) => {
           <Progress value={progressValue} />
         </div>
 
+        {/* 4-Column Summary Metrics */}
         <div className="grid grid-cols-4 gap-4">
           <div className="text-center">
-            <div className="text-2xl font-bold">{counts.total_documents}</div>
-            <div className="text-sm text-gray-500">Documents</div>
+            <div className="text-2xl font-bold">{counts.total_documents || 0}</div>
+            <div className="text-sm text-gray-500">Total Files</div>
+          </div>
+          <div className="text-center">
+            <div className="text-2xl font-bold">{totalProcessed}</div>
+            <div className="text-sm text-gray-500">Processed</div>
           </div>
           <div className="text-center">
             <div className="text-2xl font-bold text-green-600">
-              {counts.imported_documents}
+              {status.successful_files?.length || 0}
             </div>
             <div className="text-sm text-gray-500">Imported</div>
           </div>
           <div className="text-center">
             <div className="text-2xl font-bold text-red-600">
-              {counts.failed_documents}
+              {status.failed_files?.length || 0}
             </div>
             <div className="text-sm text-gray-500">Failed</div>
           </div>
-          <div className="text-center">
-            <div className="text-2xl font-bold">{counts.total_topics}</div>
-            <div className="text-sm text-gray-500">Topics</div>
-          </div>
         </div>
 
-        {status.errors && status.errors.length > 0 && (
+        {/* Errors Section */}
+        {status.failed_files && status.failed_files.length > 0 && (
           <div>
             <h3 className="text-sm font-semibold mb-2">Errors</h3>
             <div className="space-y-2 max-h-64 overflow-y-auto">
-              {status.errors.map((error, index) => (
+              {status.failed_files.map((error, index) => (
                 <div
                   key={index}
                   className="p-3 bg-red-50 dark:bg-red-900/20 rounded-lg text-sm"
@@ -89,6 +92,24 @@ export const ImportProgress: React.FC<ImportProgressProps> = ({ status }) => {
                   <div className="text-red-600 dark:text-red-400">
                     {typeof error === 'object' ? JSON.stringify(error) : String(error)}
                   </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        
+        {/* Warnings Section */}
+        {status.warnings && status.warnings.length > 0 && (
+          <div>
+            <h3 className="text-sm font-semibold mb-2">Warnings</h3>
+            <div className="space-y-2 max-h-64 overflow-y-auto">
+              {status.warnings.map((warning, index) => (
+                <div
+                  key={index}
+                  className="p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg text-sm"
+                >
+                  <div className="font-medium">{warning.file_path}</div>
+                  <div className="text-yellow-600 dark:text-yellow-400">{warning.message}</div>
                 </div>
               ))}
             </div>

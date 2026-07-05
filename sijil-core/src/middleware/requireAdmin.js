@@ -1,3 +1,4 @@
+import { config } from '../config/env.js';
 import * as logger from '../utils/logger.js';
 
 /**
@@ -11,12 +12,12 @@ import * as logger from '../utils/logger.js';
  * Uses ADMIN_SECRET env var for temporary bootstrap mode
  */
 export function requireAdmin(req, res, next) {
-    const adminSecret = process.env.ADMIN_SECRET;
+    const adminSecret = config.ADMIN_SECRET;
     const providedSecret = req.headers['x-admin-secret'];
     
-    // If ADMIN_SECRET is not set, allow all requests (development mode)
+    // If ADMIN_SECRET is not set OR is empty string, allow all requests (development mode)
     // This enables easy testing before auth is configured
-    if (!adminSecret) {
+    if (!adminSecret || adminSecret.trim() === '') {
         logger.warn({ path: req.path }, 'Admin route accessed without ADMIN_SECRET configured');
         req.admin_id = 'bootstrap_admin';
         return next();
@@ -45,7 +46,7 @@ export function requireAdmin(req, res, next) {
  * Useful for routes that work for both admin and regular users
  */
 export function optionalAdmin(req, res, next) {
-    const adminSecret = process.env.ADMIN_SECRET;
+    const adminSecret = config.ADMIN_SECRET;
     const providedSecret = req.headers['x-admin-secret'];
     
     if (adminSecret && providedSecret === adminSecret) {

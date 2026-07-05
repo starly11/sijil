@@ -82,7 +82,21 @@ export interface StaleCheckResponse {
 
 // Admin API types
 export type IngestionStatus = 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled';
-export type ImportStatus = 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled';
+export type ImportStatus = 
+  | 'pending' 
+  | 'processing' 
+  | 'completed' 
+  | 'failed' 
+  | 'cancelled'
+  | 'PENDING' 
+  | 'SCANNING' 
+  | 'VALIDATING' 
+  | 'READY' 
+  | 'IMPORTING' 
+  | 'COMPLETED' 
+  | 'FAILED' 
+  | 'PARTIAL_SUCCESS' 
+  | 'CANCELLED';
 
 export interface IngestionJob {
   tracking_id: string;
@@ -132,10 +146,22 @@ export interface BatchImportRequest {
 
 export interface BatchImportStatus {
   batch_id: string;
+<<<<<<< Updated upstream
   status: 'PENDING' | 'VALIDATING' | 'DOWNLOADING' | 'IMPORTING' | 'INDEXING' | 'COMPLETED' | 'FAILED';
   repo_url: string;
   commit_sha?: string;
   progress: number;
+=======
+  status: ImportStatus;
+  repo_url: string;
+  commit_sha: string;
+  progress: {
+    scanning: { status: string; percentage: number };
+    validating: { status: string; percentage: number };
+    importing: { status: string; percentage: number; documents: number; topics: number; assets: number; assessments: number };
+    indexing: { status: string; percentage: number };
+  };
+>>>>>>> Stashed changes
   counts: {
     total_documents: number;
     total_topics: number;
@@ -150,10 +176,17 @@ export interface BatchImportStatus {
     failed_assets: number;
     failed_assessments: number;
   };
+<<<<<<< Updated upstream
   successful_files: string[];
   failed_files: string[];
   warnings?: any[];
   errors?: any[];
+=======
+  successful_files: Array<{ file_path: string; document_id: string; ingested_at: string }>;
+  failed_files: Array<{ file_path: string; error: string; failed_at: string; retry_count: number }>;
+  warnings: Array<{ type: string; message: string; file_path: string; topic_id?: string }>;
+  errors: Array<{ type: string; message: string; file_path?: string; details?: any }>;
+>>>>>>> Stashed changes
   report?: any;
   started_at?: string;
   completed_at?: string;

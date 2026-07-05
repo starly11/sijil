@@ -25,6 +25,10 @@ const envSchema = z.object({
     // --- App ---
     PORT: z.coerce.number().int().positive().default(4000),
     NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
+    
+    // --- GitHub & Admin ---
+    GITHUB_PAT: z.string().optional(),
+    ADMIN_SECRET: z.string().optional(),
 });
 
 // 3. Parse process.env against the schema

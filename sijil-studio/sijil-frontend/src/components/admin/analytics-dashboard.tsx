@@ -46,15 +46,23 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
     return null;
   }
 
+  const safeData = {
+    total_topics: data.total_topics ?? 0,
+    total_documents: data.total_documents ?? 0,
+    total_assessments: data.total_assessments ?? 0,
+    import_success_rate: data.import_success_rate ?? 0,
+    recent_activity: data.recent_activity ?? []
+  };
+
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <StatCard title="Total Topics" value={data.total_topics} />
-        <StatCard title="Total Documents" value={data.total_documents} />
-        <StatCard title="Total Assessments" value={data.total_assessments} />
+        <StatCard title="Total Topics" value={safeData.total_topics} />
+        <StatCard title="Total Documents" value={safeData.total_documents} />
+        <StatCard title="Total Assessments" value={safeData.total_assessments} />
         <StatCard
           title="Import Success Rate"
-          value={`${data.import_success_rate}%`}
+          value={`${safeData.import_success_rate}%`}
         />
       </div>
 
@@ -64,20 +72,24 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            {data.recent_activity.map((activity, index) => (
-              <div
-                key={index}
-                className="flex items-start justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-lg"
-              >
-                <div>
-                  <div className="font-medium">{activity.type}</div>
-                  <div className="text-sm text-gray-500">{activity.message}</div>
+            {safeData.recent_activity.length === 0 ? (
+              <p className="text-gray-500 text-center py-4">No recent activity</p>
+            ) : (
+              safeData.recent_activity.map((activity, index) => (
+                <div
+                  key={index}
+                  className="flex items-start justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-lg"
+                >
+                  <div>
+                    <div className="font-medium">{activity.type}</div>
+                    <div className="text-sm text-gray-500">{activity.message}</div>
+                  </div>
+                  <div className="text-sm text-gray-500">
+                    {new Date(activity.timestamp).toLocaleString()}
+                  </div>
                 </div>
-                <div className="text-sm text-gray-500">
-                  {new Date(activity.timestamp).toLocaleString()}
-                </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </CardContent>
       </Card>

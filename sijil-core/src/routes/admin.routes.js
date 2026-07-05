@@ -9,6 +9,7 @@ import TopicContent from '../models/topicContent.model.js';
 import TopicAsset from '../models/topicAsset.model.js';
 import TopicAssessment from '../models/topicAssessment.model.js';
 import { requireAdmin } from '../middleware/requireAdmin.js';
+import { config } from '../config/env.js';
 import * as logger from '../utils/logger.js';
 
 const router = Router();
@@ -19,7 +20,7 @@ const router = Router();
  */
 router.post('/import/preview', requireAdmin, async (req, res, next) => {
     try {
-        const { repo_url } = req.body;
+        const { repo_url, branch, path } = req.body;
         
         if (!repo_url) {
             return res.status(400).json({ 
@@ -28,7 +29,7 @@ router.post('/import/preview', requireAdmin, async (req, res, next) => {
             });
         }
 
-        const github_token = process.env.GITHUB_PAT || process.env.PAT;
+        const github_token = config.GITHUB_PAT || process.env.PAT;
         
         if (!github_token) {
             return res.status(500).json({ 
@@ -39,6 +40,8 @@ router.post('/import/preview', requireAdmin, async (req, res, next) => {
 
         const result = await previewImport({
             repo_url,
+            branch,
+            path,
             github_token,
             admin_id: req.admin_id || 'bootstrap_admin',
             ip_address: req.ip
@@ -70,7 +73,7 @@ router.post('/import/start', requireAdmin, async (req, res, next) => {
             });
         }
 
-        const github_token = process.env.GITHUB_PAT || process.env.PAT;
+        const github_token = config.GITHUB_PAT || process.env.PAT;
         
         if (!github_token) {
             return res.status(500).json({ 
@@ -211,7 +214,7 @@ router.post('/import/:batchId/retry', requireAdmin, async (req, res, next) => {
 
         // Start import with retry_only flag - do NOT reset failed files yet
         // The processor will handle removing successful retries
-        const github_token = process.env.GITHUB_PAT || process.env.PAT;
+        const github_token = config.GITHUB_PAT || process.env.PAT;
         
         executeImport({
             batch_id: batchId,

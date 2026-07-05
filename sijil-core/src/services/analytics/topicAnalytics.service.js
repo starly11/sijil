@@ -1,4 +1,8 @@
 import PopularTopic from '../../models/popularTopic.model.js';
+import Document from '../../models/document.model.js';
+import Topic from '../../models/topic.model.js';
+import TopicAssessment from '../../models/topicAssessment.model.js';
+import ImportBatch from '../../models/importBatch.model.js';
 import * as logger from '../../utils/logger.js';
 
 /**
@@ -16,6 +20,7 @@ export async function recordTopicView({ topicId, topicTitle, topicSlug, document
       {
         $set: {
           topic_id: topicId,
+          topic_title: topicTitle,
           last_viewed_at: now
         },
         $inc: { view_count: 1 }
@@ -37,12 +42,12 @@ export async function recordExportDownload({ topicId, exportType, documentType }
     
     const now = new Date();
     
-    // The schema has search_hit_count, we'll use that for exports or just update view_count
     await PopularTopic.findByIdAndUpdate(
       topicId,
       {
         $set: {
           topic_id: topicId,
+          topic_title: topicId,
           last_export_type: exportType,
           last_export_date: now
         },
@@ -60,20 +65,36 @@ export async function recordExportDownload({ topicId, exportType, documentType }
  */
 export async function getTopicAnalyticsSummary() {
   try {
-    const [topTopics, totalTracked] = await Promise.all([
-      PopularTopic.find().sort({ view_count: -1 }).limit(10).lean(),
-      PopularTopic.countDocuments()
+    const [totalDocs, totalTopics, totalAssessments, importBatches] = await Promise.all([
+      Document.countDocuments(),
+      Topic.countDocuments(),
+      TopicAssessment.countDocuments(),
+      ImportBatch.find().sort({ created_at: -1 }).limit(5).lean(),
     ]);
+    
+    const successCount = importBatches.filter(b => b.status === 'completed').length;
+    const totalCount = importBatches.length;
+    const successRate = totalCount > 0 ? Math.round((successCount / totalCount) * 100) : 100;
+
+    const recentActivity = importBatches.map(batch => ({
+      type: batch.status === 'completed' ? 'Import' : 'Import Attempt',
+      message: `Processed ${batch.processed_files || 0} files (${batch.success_count || 0} succeeded, ${batch.failure_count || 0} failed)`,
+      timestamp: batch.created_at
+    }));
 
     return {
-      top_topics: topTopics.map(t => ({
-        topic_id: t.topic_id,
-        topic_title: t.topic_title || 'Unknown',
-        hit_count: t.view_count,
-        last_viewed_at: t.last_viewed_at || t.updated_at
-      })),
-      total_tracked: totalTracked,
-      generated_at: new Date().toISOString()
+      total_topics: totalTopics,
+      total_documents: totalDocs,
+      total_assessments: totalAssessments,
+      total_imports: totalCount,
+      import_success_rate: successRate,
+      recent_activity: recentActivity,
+      platform_stats: {
+        documents_count: totalDocs,
+        topics_count: totalTopics,
+        subjects_count: 0,
+        grades_count: 0
+      }
     };
   } catch (error) {
     logger.error({ error: error.message, fn: 'getTopicAnalyticsSummary' }, 'Failed to get topic analytics');

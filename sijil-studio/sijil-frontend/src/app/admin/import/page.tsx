@@ -29,16 +29,16 @@ export default function ImportPage() {
   const [logs, setLogs] = React.useState<LogEntry[]>([]);
   const [isStreaming, setIsStreaming] = React.useState(false);
   const [batchId, setBatchId] = React.useState<string | null>(null);
-  
+
   const previewMutation = useBatchImportPreview();
   const startMutation = useBatchImportStart();
-  
+
   // Load persisted state on mount
   React.useEffect(() => {
     const savedBatchId = localStorage.getItem('currentImportBatchId');
     const savedRepoUrl = localStorage.getItem('lastRepoUrl');
     const savedLogs = localStorage.getItem('importLogs');
-    
+
     if (savedBatchId) {
       setBatchId(savedBatchId);
     }
@@ -53,22 +53,22 @@ export default function ImportPage() {
       }
     }
   }, []);
-  
+
   // Persist logs to localStorage
   React.useEffect(() => {
     if (logs.length > 0) {
       localStorage.setItem('importLogs', JSON.stringify(logs));
     }
   }, [logs]);
-  
+
   // Use the status hook if we have a batchId
   const { data: statusData } = useBatchImportStatus(batchId);
-  
+
   // Sync status updates with logs
   React.useEffect(() => {
     if (statusData && batchId) {
       const status = statusData.status?.toLowerCase();
-      
+
       if (status === 'scanning' && !logs.some(l => l.message.includes('Repository scan in progress'))) {
         addLog('info', 'Repository scan in progress...', statusData.counts);
       } else if (status === 'validating' && !logs.some(l => l.message.includes('Validating content'))) {
@@ -91,7 +91,7 @@ export default function ImportPage() {
       }
     }
   }, [statusData, batchId]);
-  
+
   const addLog = (level: 'info' | 'warn' | 'error' | 'success', message: string, details?: any) => {
     setLogs(prev => {
       const newLog: LogEntry = {
@@ -119,20 +119,29 @@ export default function ImportPage() {
         path: path || undefined,
       });
 
+<<<<<<< HEAD
+=======
+      console.log('=== Preview Response ===');
+      console.log('Full response:', response);
+      console.log('response.data:', response.data);
+
+>>>>>>> a31d2a5 (new)
       addLog('success', 'Repository scan completed!', {
         documents: response.data?.documents_found,
         topics: response.data?.topics_found,
         files: response.data?.files_preview?.length
       });
-      
-      setPreviewData(response);
+
+      setPreviewData(response.data);
+      console.log('Set previewData to:', response.data);
+
       if (response.data?.batch_id) {
         const newBatchId = response.data.batch_id;
         setBatchId(newBatchId);
         localStorage.setItem('currentImportBatchId', newBatchId);
         localStorage.setItem('lastRepoUrl', repoUrl);
       }
-      
+
       addLog('info', 'Ready to start import. Click "Start Import" to begin.');
       
       console.log('=== Preview Response ===');
@@ -140,6 +149,10 @@ export default function ImportPage() {
       console.log('response.data:', response.data);
       console.log('Set previewData to:', response.data);
     } catch (error: any) {
+      console.error('=== Preview Failed ===');
+      console.error('Error object:', error);
+      console.error('Error message:', (error as Error).message);
+
       addLog('error', 'Preview failed', error.message || String(error));
       setIsStreaming(false);
       console.error('=== Preview Failed ===');
@@ -156,13 +169,13 @@ export default function ImportPage() {
       const currentBatchId = batchId || previewData?.batch_id;
       addLog('info', 'Starting batch import process...', { batch_id: currentBatchId });
       setIsStreaming(true);
-      
+
       await startMutation.mutateAsync({
         batch_id: currentBatchId,
       });
-      
+
       addLog('success', 'Import started successfully! Monitoring progress...');
-      
+
       setTimeout(() => {
         router.push(`/admin/import/${currentBatchId}`);
       }, 1500);
@@ -171,7 +184,7 @@ export default function ImportPage() {
       setIsStreaming(false);
     }
   };
-  
+
   const clearState = () => {
     setBatchId(null);
     setPreviewData(null);
@@ -240,11 +253,10 @@ export default function ImportPage() {
                 <CheckCircle2 className="w-5 h-5 text-blue-500" />
                 Current Import Status
               </CardTitle>
-              <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                statusData.status === 'COMPLETED' ? 'bg-green-100 text-green-700' :
-                statusData.status === 'FAILED' ? 'bg-red-100 text-red-700' :
-                'bg-blue-100 text-blue-700'
-              }`}>
+              <span className={`px-3 py-1 rounded-full text-xs font-medium ${statusData.status === 'COMPLETED' ? 'bg-green-100 text-green-700' :
+                  statusData.status === 'FAILED' ? 'bg-red-100 text-red-700' :
+                    'bg-blue-100 text-blue-700'
+                }`}>
                 {statusData.status}
               </span>
             </div>
@@ -361,8 +373,8 @@ export default function ImportPage() {
         <>
           <ImportPreview data={previewData} />
           <div className="flex gap-4">
-            <Button 
-              onClick={handleStartImport} 
+            <Button
+              onClick={handleStartImport}
               disabled={startMutation.isPending}
               className="bg-gradient-to-r from-green-600 to-emerald-700 hover:from-green-700 hover:to-emerald-800 text-white shadow-md"
             >
