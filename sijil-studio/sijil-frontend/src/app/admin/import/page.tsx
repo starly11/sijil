@@ -119,13 +119,11 @@ export default function ImportPage() {
         path: path || undefined,
       });
 
-<<<<<<< HEAD
-=======
+
       console.log('=== Preview Response ===');
       console.log('Full response:', response);
       console.log('response.data:', response.data);
 
->>>>>>> a31d2a5 (new)
       addLog('success', 'Repository scan completed!', {
         documents: response.data?.documents_found,
         topics: response.data?.topics_found,
