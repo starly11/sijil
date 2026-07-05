@@ -122,19 +122,18 @@ export default function ImportPage() {
 
       console.log('=== Preview Response ===');
       console.log('Full response:', response);
-      console.log('response.data:', response.data);
 
       addLog('success', 'Repository scan completed!', {
-        documents: response.data?.documents_found,
-        topics: response.data?.topics_found,
-        files: response.data?.files_preview?.length
+        documents: response?.documents_found,
+        topics: response?.topics_found,
+        files: response?.files_preview?.length
       });
 
-      setPreviewData(response.data);
-      console.log('Set previewData to:', response.data);
+      setPreviewData(response);
+      console.log('Set previewData to:', response);
 
-      if (response.data?.batch_id) {
-        const newBatchId = response.data.batch_id;
+      if (response?.batch_id) {
+        const newBatchId = response.batch_id;
         setBatchId(newBatchId);
         localStorage.setItem('currentImportBatchId', newBatchId);
         localStorage.setItem('lastRepoUrl', repoUrl);
@@ -142,10 +141,11 @@ export default function ImportPage() {
 
       addLog('info', 'Ready to start import. Click "Start Import" to begin.');
       
-      console.log('=== Preview Response ===');
-      console.log('Full response:', response);
-      console.log('response.data:', response.data);
-      console.log('Set previewData to:', response.data);
+      console.log('=== Preview Data Set ===');
+      console.log('previewData state:', response);
+      console.log('Has documents_found:', !!response?.documents_found);
+      console.log('Has files_preview:', !!response?.files_preview);
+      console.log('files_preview length:', response?.files_preview?.length);
     } catch (error: any) {
       console.error('=== Preview Failed ===');
       console.error('Error object:', error);
