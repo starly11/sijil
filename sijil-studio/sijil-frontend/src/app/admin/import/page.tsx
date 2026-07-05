@@ -367,13 +367,13 @@ export default function ImportPage() {
         </CardContent>
       </Card>
 
-      {previewData && !batchId && (
+      {previewData && (
         <>
           <ImportPreview data={previewData} />
           <div className="flex gap-4">
             <Button
               onClick={handleStartImport}
-              disabled={startMutation.isPending}
+              disabled={startMutation.isPending || !batchId}
               className="bg-gradient-to-r from-green-600 to-emerald-700 hover:from-green-700 hover:to-emerald-800 text-white shadow-md"
             >
               {startMutation.isPending ? (

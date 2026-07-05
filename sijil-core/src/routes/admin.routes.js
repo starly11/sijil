@@ -47,9 +47,24 @@ router.post('/import/preview', requireAdmin, async (req, res, next) => {
             ip_address: req.ip
         });
 
+        // Map backend response to frontend expectations
+        const frontendResponse = {
+            batch_id: result.batch_id,
+            documents_found: result.total_documents,
+            topics_found: result.total_topics,
+            assets_found: result.total_assets,
+            assessments_found: result.total_assessments,
+            files_preview: result.files_preview,
+            documents: result.documents,
+            errors: result.errors,
+            warnings: result.warnings,
+            repo_info: result.repo_info,
+            commit_sha: result.commit_sha
+        };
+
         return res.status(200).json({ 
             success: true, 
-            data: result 
+            data: frontendResponse 
         });
 
     } catch (error) {
