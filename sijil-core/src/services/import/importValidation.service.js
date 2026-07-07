@@ -65,22 +65,42 @@ export async function fetchFileContent(token, owner, name, path) {
         logger.info({ downloadUrl: data.download_url }, 'Using download_url for large file');
         
         const downloadHeaders = {
-            'Accept': 'application/vnd.github.v3+json'
+            'Accept': 'application/vnd.github.v3.raw',  // Changed to raw content type
+            'User-Agent': 'sijil-import-service'  // GitHub requires User-Agent
         };
         if (token) {
             downloadHeaders['Authorization'] = `token ${token}`;
         }
         
-        const downloadResponse = await fetch(data.download_url, {
-            headers: downloadHeaders
-        });
+        logger.info({ 
+            url: data.download_url,
+            headers: Object.keys(downloadHeaders),
+            hasAuth: !!token 
+        }, 'Attempting download with headers');
+        
+        let downloadResponse;
+        try {
+            downloadResponse = await fetch(data.download_url, {
+                headers: downloadHeaders,
+                timeout: 30000  // 30 second timeout
+            });
+        } catch (fetchError) {
+            logger.error({ 
+                err: fetchError,
+                message: fetchError.message,
+                url: data.download_url 
+            }, 'Fetch network error');
+            throw new Error(`Network error downloading ${path}: ${fetchError.message}`);
+        }
+        
         if (!downloadResponse.ok) {
             const errorText = await downloadResponse.text();
             logger.error({ 
                 status: downloadResponse.status, 
                 statusText: downloadResponse.statusText,
                 url: data.download_url,
-                responseBody: errorText.substring(0, 500)
+                responseBody: errorText.substring(0, 500),
+                headers: downloadResponse.headers ? Object.fromEntries(downloadResponse.headers.entries()) : 'unavailable'
             }, 'Download URL failed');
             throw new Error(`Failed to download ${path} via download_url: ${downloadResponse.status} ${downloadResponse.statusText} - ${errorText.substring(0, 200)}`);
         }
