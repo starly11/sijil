@@ -204,16 +204,18 @@ async function processBatchImport(job) {
                 
                 // Call existing ingestDocument service - SINGLE SOURCE OF TRUTH
                 logger.info({ batch_id, file: filePath, has_topics: !!enrichedDoc.topics, topic_count: enrichedDoc.topics.length }, 'Calling ingestDocument');
-                const result = await ingestDocument({ 
-                    payload: enrichedDoc, 
-                    source: 'batch_import',
-                    batch_id 
-                });
-                logger.info({ batch_id, file: filePath, success: result.success }, 'IngestDocument completed');
                 
-                processedCount++;
-                
-                if (result.success) {
+                try {
+                    const result = await ingestDocument({
+                        payload: enrichedDoc,
+                        source: 'batch_import',
+                        batch_id
+                    });
+                    logger.info({ batch_id, file: filePath, success: result.success, summary: result.summary }, 'IngestDocument completed');
+
+                    processedCount++;
+
+                    if (result.success) {
                     // Track successful file
                     batch.successful_files.push({
                         file_path: filePath,

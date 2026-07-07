@@ -195,7 +195,6 @@ export async function ingestDocument({ payload, source = 'system', existingDocum
             status: 'complete',
             summary: completionSummary
         };
-
     } catch (globalPipelineError) {
         logger.error({ trackingId, error: globalPipelineError.message }, 'Critical processing interruption caught during pipeline execution!');
 
