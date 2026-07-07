@@ -68,7 +68,6 @@ export const useBatchImportStart = () => {
 };
 
 export const useBatchImportStatus = (batchId: string | null) => {
-export const useBatchImportStatus = (batchId: string | null) => {
   return useQuery({
     queryKey: ['importStatus', batchId],
     queryFn: async (): Promise<BatchImportStatus> => {
@@ -76,6 +75,14 @@ export const useBatchImportStatus = (batchId: string | null) => {
         throw new Error('No batch ID');
       }
       const resp = await apiFetchClient<BatchImportStatus>(API_ENDPOINTS.IMPORT_STATUS(batchId));
+      
+      // Throw error on 401 to trigger retry logic
+      if (resp.status === 401) {
+        const error = new Error('Unauthorized') as any;
+        error.status = 401;
+        throw error;
+      }
+      
       if (!resp.data) {
         throw new Error('No data from API');
       }

@@ -1,4 +1,4 @@
-import { Worker } from 'bullmq';
+import { Worker, Queue } from 'bullmq';
 import { createBullMQConnection } from '../queues/connection.js';
 import * as logger from '../utils/logger.js';
 
@@ -38,9 +38,11 @@ export function createWorker(queueName, processor) {
     worker.on('ready', async () => {
         logger.info({ queue: queueName, event: 'worker_ready' }, `Worker process listening for work items inside queue [${queueName}]`);
         
-        // Check for stalled jobs and clean them up
+        // Check for stalled jobs using the Queue API
         try {
-            const stalledJobs = await worker.getStalledJobs();
+            const queue = new Queue(queueName, { connection: dedicatedWorkerConnection });
+            const stalledJobs = await queue.getStalledJobs();
+            
             if (stalledJobs.length > 0) {
                 logger.warn({ queue: queueName, count: stalledJobs.length }, `Found ${stalledJobs.length} stalled jobs on startup. Cleaning up...`);
                 
@@ -82,6 +84,8 @@ export function createWorker(queueName, processor) {
                 
                 logger.info({ queue: queueName, cleaned: stalledJobs.length }, `Cleaned up ${stalledJobs.length} stalled jobs`);
             }
+            
+            await queue.close();
         } catch (err) {
             logger.error({ queue: queueName, error: err.message }, `Error checking for stalled jobs on startup`);
         }
