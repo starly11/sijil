@@ -68,6 +68,7 @@ export const useBatchImportStart = () => {
 };
 
 export const useBatchImportStatus = (batchId: string | null) => {
+export const useBatchImportStatus = (batchId: string | null) => {
   return useQuery({
     queryKey: ['importStatus', batchId],
     queryFn: async (): Promise<BatchImportStatus> => {
@@ -94,6 +95,19 @@ export const useBatchImportStatus = (batchId: string | null) => {
         return false;
       }
       return 2000;
+    },
+    // Stop polling on 401 errors (unauthorized)
+    retry: (failureCount, error: any) => {
+      if (error?.status === 401 || error?.response?.status === 401) {
+        console.warn('[useBatchImportStatus] Unauthorized access detected. Stopping polling.');
+        return false;
+      }
+      return failureCount < 3;
+    },
+    onError: (error: any) => {
+      if (error?.status === 401 || error?.response?.status === 401) {
+        console.error('[useBatchImportStatus] Authentication failed. Please check your admin secret.');
+      }
     },
   });
 };
