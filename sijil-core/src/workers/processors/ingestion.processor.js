@@ -184,11 +184,11 @@ async function processBatchImport(job) {
                 const fileFromTree = tree.find(f => f.path === filePath);
                 const fileSha = fileFromTree ? fileFromTree.sha : null;
                 
-                // Add meta to doc with source info!
+                // Add ingest_metadata to doc with source info (matching the schema format)
                 const enrichedDoc = {
                     ...doc,
-                    meta: {
-                        ...doc.meta,
+                    ingest_metadata: {
+                        ...(doc.ingest_metadata || doc.meta || {}),
                         source_file_name: filePath,
                         source_file_sha256: fileSha || `batch_${batch_id}_${filePath}`
                     }

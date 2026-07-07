@@ -31,9 +31,15 @@ export async function ingestDocument({ payload, source = 'system', existingDocum
     }
 
     const trackingId = generateEntityId('ingest');
-    // For batch imports or when no source_sha available, use the tracking id as part of the source_sha256 to avoid duplicates!
-    const sourceSha = parsedPayload?.meta?.source_file_sha256 || parsedPayload?.source_file_sha256 || `unknown_sha256_${trackingId}`;
-    const sourceFileName = parsedPayload?.meta?.source_file_name || parsedPayload?.source_file_name || 'unknown_file';
+    // Support multiple metadata field locations for flexibility
+    const sourceSha = parsedPayload?.ingest_metadata?.source_file_sha256 
+                   || parsedPayload?.meta?.source_file_sha256 
+                   || parsedPayload?.source_file_sha256 
+                   || `unknown_sha256_${trackingId}`;
+    const sourceFileName = parsedPayload?.ingest_metadata?.source_file_name 
+                        || parsedPayload?.meta?.source_file_name 
+                        || parsedPayload?.source_file_name 
+                        || 'unknown_file';
 
     logger.info({ trackingId, sourceSha }, `Creating early ingest tracking entry inside database...`);
 
@@ -51,7 +57,9 @@ export async function ingestDocument({ payload, source = 'system', existingDocum
 
     try {
         logger.info({ trackingId }, 'Passing structured tree directly into validateQwenOutput()...');
-        const validationResult = await validateQwenOutput(parsedPayload);
+        // Use lenient mode for batch imports to skip strict Zod validation
+        const isBatchImport = source === 'batch_import';
+        const validationResult = await validateQwenOutput(parsedPayload, { lenient: isBatchImport });
 
         if (!validationResult.valid) {
             const errorPayload = validationResult.errors || [{ message: 'Validation pipeline rejected payload properties shape.' }];

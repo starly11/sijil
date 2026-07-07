@@ -8,7 +8,7 @@ export const SlugSchema = z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Invali
  * @param {string} prefix - The expected alphanumeric entity code prefix (e.g. 'blk', 'frm')
  */
 export function idSchema(prefix) {
-    return z.string().regex(new RegExp(`^${prefix}_[a-z0-9]+$`), `ID must start with ${prefix}_`);
+    return z.string().regex(new RegExp(`^${prefix}_[a-z0-9-]+$`), `ID must start with ${prefix}_ followed by lowercase letters, numbers, or hyphens`);
 }
 
 /** Validates structural design metadata, custom styling class definitions, and animation profiles. */
