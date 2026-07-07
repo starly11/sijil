@@ -19,20 +19,24 @@ export function buildDocumentRecord(validatedData, documentId, documentSlug, top
     let totalFlashcards = 0;
     let totalShortQs = 0;
 
-    normalizedBundles.normalizedTopics.forEach(t => {
-        totalBlocks += t.summary_counters.total_blocks;
-        totalFormulas += t.summary_counters.total_formulas;
-        totalImages += t.summary_counters.total_images;
-        totalTables += t.summary_counters.total_tables;
-        totalMcqs += t.summary_counters.total_mcqs;
-        totalFlashcards += t.summary_counters.total_flashcards;
-    });
+    if (Array.isArray(normalizedBundles.normalizedTopics)) {
+        normalizedBundles.normalizedTopics.forEach(t => {
+            totalBlocks += t.summary_counters.total_blocks;
+            totalFormulas += t.summary_counters.total_formulas;
+            totalImages += t.summary_counters.total_images;
+            totalTables += t.summary_counters.total_tables;
+            totalMcqs += t.summary_counters.total_mcqs;
+            totalFlashcards += t.summary_counters.total_flashcards;
+        });
+    }
 
-    normalizedBundles.normalizedTopicAssessments.forEach(a => {
-        if (Array.isArray(a.short_questions)) {
-            totalShortQs += a.short_questions.length;
-        }
-    });
+    if (Array.isArray(normalizedBundles.normalizedTopicAssessments)) {
+        normalizedBundles.normalizedTopicAssessments.forEach(a => {
+            if (Array.isArray(a.short_questions)) {
+                totalShortQs += a.short_questions.length;
+            }
+        });
+    }
 
     // Build document with both top-level title (backward compatibility) and document_metadata
     return {

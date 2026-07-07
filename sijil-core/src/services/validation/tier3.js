@@ -9,7 +9,7 @@ export function checkTier3Flags(rawTopic, validatedTopic, documentLevel) {
     const flags = [];
 
     // 1. Process document level telemetry flags if provided
-    if (documentLevel) {
+    if (documentLevel && typeof documentLevel === 'object') {
         const score = documentLevel.confidence_score;
         if (typeof score === 'number' && score < 0.80) {
             flags.push({
@@ -27,12 +27,13 @@ export function checkTier3Flags(rawTopic, validatedTopic, documentLevel) {
         }
     }
 
-    if (!validatedTopic) return flags;
+    if (!validatedTopic || typeof validatedTopic !== 'object') return flags;
     const tId = validatedTopic._id || "unknown_topic";
 
     // 2. Scan image alt text description completeness
     if (Array.isArray(validatedTopic.figures)) {
         validatedTopic.figures.forEach(fig => {
+            if (!fig || typeof fig !== 'object') return;
             const altText = fig.alt || "";
             const wordCount = altText.trim().split(/\s+/).filter(Boolean).length;
             if (wordCount < 20) {
@@ -49,6 +50,7 @@ export function checkTier3Flags(rawTopic, validatedTopic, documentLevel) {
     // 3. Scan formula display property completeness
     if (Array.isArray(validatedTopic.formulas)) {
         validatedTopic.formulas.forEach(form => {
+            if (!form || typeof form !== 'object') return;
             if (!form.latex || !form.text) {
                 flags.push({
                     type: "incomplete_formula",
@@ -78,9 +80,10 @@ export function checkTier3Flags(rawTopic, validatedTopic, documentLevel) {
     }
 
     // 5. Evaluate un-normalized raw inputs for structural shape defects
-    if (rawTopic) {
+    if (rawTopic && typeof rawTopic === 'object') {
         if (Array.isArray(rawTopic.book_mcqs)) {
             rawTopic.book_mcqs.forEach((rawMcq, idx) => {
+                if (!rawMcq || typeof rawMcq !== 'object') return;
                 const optKeys = Object.keys(rawMcq?.options || {});
                 if (optKeys.length !== 4) {
                     flags.push({
@@ -95,6 +98,7 @@ export function checkTier3Flags(rawTopic, validatedTopic, documentLevel) {
 
         if (Array.isArray(rawTopic.content_blocks)) {
             rawTopic.content_blocks.forEach((rawBlk) => {
+                if (!rawBlk || typeof rawBlk !== 'object') return;
                 if (rawBlk?.type === "mcq") {
                     const optKeys = Object.keys(rawBlk?.options || {});
                     if (optKeys.length !== 4) {

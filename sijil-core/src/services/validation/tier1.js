@@ -17,10 +17,17 @@ export function checkTier1(rawParsed) {
         errors.push({ message: `Invalid schema version target. Expected: "${CURRENT_SCHEMA_VERSION}"` });
     }
 
-    const topics = rawParsed.topics || rawParsed.container?.topics;
+    let topics = rawParsed.topics;
+    if (!Array.isArray(topics) && rawParsed.container?.topics) {
+        topics = rawParsed.container.topics;
+    }
     if (!Array.isArray(topics) || topics.length === 0) {
         errors.push({ message: "topics array must not be empty" });
     } else {
+        // Additional safety check - ensure topics is not null/undefined before forEach
+        if (!topics || !Array.isArray(topics)) {
+            return { passed: false, errors: [{ message: "topics array is invalid" }] };
+        }
         const essentialKeys = ["title", "slug"]; // slug is required for Tier 1 validation
         topics.forEach((topic, idx) => {
             if (!topic || typeof topic !== 'object') {

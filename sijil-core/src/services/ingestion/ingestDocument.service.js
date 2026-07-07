@@ -31,7 +31,8 @@ export async function ingestDocument({ payload, source = 'system', existingDocum
     }
 
     const trackingId = generateEntityId('ingest');
-    const sourceSha = parsedPayload?.meta?.source_file_sha256 || parsedPayload?.source_file_sha256 || 'unknown_sha256';
+    // For batch imports or when no source_sha available, use the tracking id as part of the source_sha256 to avoid duplicates!
+    const sourceSha = parsedPayload?.meta?.source_file_sha256 || parsedPayload?.source_file_sha256 || `unknown_sha256_${trackingId}`;
     const sourceFileName = parsedPayload?.meta?.source_file_name || parsedPayload?.source_file_name || 'unknown_file';
 
     logger.info({ trackingId, sourceSha }, `Creating early ingest tracking entry inside database...`);
@@ -121,7 +122,7 @@ export async function ingestDocument({ payload, source = 'system', existingDocum
 
         // Step 4 & 5: Run data transformations and collection mappings
         const cleanData = validationResult.data || parsedPayload;
-        const bundles = normalizeDocumentPayload(cleanData);
+        const bundles = await normalizeDocumentPayload(cleanData);
         const documentRecord = buildDocumentRecord(cleanData, bundles.documentId, bundles.documentSlug, bundles.topicRefs, bundles);
 
         // Override with version info if available (nested under document_metadata)
@@ -203,6 +204,6 @@ export async function ingestDocument({ payload, source = 'system', existingDocum
             logger.error(`Failed to record fault recovery telemetry to tracking database: ${writeErr.message}`);
         }
 
-        throw globalPipelineError;
+        return { success: false, tracking_id: trackingId, status: 'error', error: globalPipelineError.message };
     }
 }

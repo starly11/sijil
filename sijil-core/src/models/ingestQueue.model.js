@@ -8,7 +8,7 @@ const { Schema } = mongoose;
 const ingestQueueSchema = new Schema({
     _id: { type: String, required: true },
     source_file_name: { type: String, required: true },
-    source_file_sha256: { type: String, required: true, unique: true, index: true },
+    source_file_sha256: { type: String, required: true, index: true },
     document_id: { type: String, index: true },
     bullmq_job_id: { type: String },
     status: { type: String, enum: ["pending", "processing", "complete", "error", "duplicate"], default: "pending", index: true },

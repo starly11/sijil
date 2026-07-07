@@ -12,8 +12,12 @@ import * as logger from '../../utils/logger.js';
 export async function normalizeDocumentPayload(validatedData) {
     // Handle both old flat structure and new validated schema structure
     const docMeta = validatedData.document_metadata || validatedData;
-    const container = validatedData.container || validatedData.container || {};
-    const topics = validatedData.topics || container.topics || [];
+    const container = validatedData.container || {};
+    let topics = validatedData.topics || container.topics || [];
+    // Ensure topics is always an array
+    if (!Array.isArray(topics)) {
+        topics = [];
+    }
     
     const documentId = docMeta.document_id || docMeta._id || generateEntityId('document');
     const documentSlug = docMeta.subject_slug || validatedData.slug || documentId;
@@ -56,7 +60,7 @@ export async function normalizeDocumentPayload(validatedData) {
     const topicRefs = [];
 
     if (Array.isArray(topics)) {
-        for (const topic of topics) {
+        for (let topic of topics) {
             const index = topics.indexOf(topic);
             const topicId = topic._id || topic.topic_id || generateEntityId('topic');
             const topicSlug = topic.slug || topic.topic_slug || generateSlug(topic.title);
@@ -165,19 +169,21 @@ export async function normalizeDocumentPayload(validatedData) {
             });
 
             // Cascade structural items straight into centralized tracking repositories
-            topicFigures.forEach(fig => {
-                const path = fig.image_path_local || fig.url;
-                if (path) {
-                    assetRegistryRecords.push({
-                        _id: generateEntityId('areg'),
-                        type: 'figure',
-                        topic_id: topicId,
-                        document_id: documentId,
-                        local_path: path,
-                        uploaded_at: new Date()
-                    });
-                }
-            });
+            if (Array.isArray(topicFigures)) {
+                topicFigures.forEach(fig => {
+                    const path = fig.image_path_local || fig.url;
+                    if (path) {
+                        assetRegistryRecords.push({
+                            _id: generateEntityId('areg'),
+                            type: 'figure',
+                            topic_id: topicId,
+                            document_id: documentId,
+                            local_path: path,
+                            uploaded_at: new Date()
+                        });
+                    }
+                });
+            }
 
             // 4. Assessments Extraction Split Record
             normalizedTopicAssessments.push({

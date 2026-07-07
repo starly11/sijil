@@ -220,7 +220,7 @@ const documentSchema = new Schema({
             is_latest: { type: Boolean, default: true }
         })
     },
-    is_archived: { type: Boolean, default: false, index: true },
+    is_archived: { type: Boolean, default: false },
     archived_at: { type: Date, default: null },
 
     type_specific_data: { type: Schema.Types.Mixed, default: {} }

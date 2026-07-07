@@ -9,7 +9,8 @@ import ImportBatch from '../../models/importBatch.model.js';
  * @param {import('bullmq').Job} job - Contextual properties reflecting target task configurations.
  */
 export default async function processIngestion(job) {
-    const jobType = job.data.job_type || 'single';
+    // Check both job.name (from add() second argument) AND job.data.job_type
+    const jobType = job.name === 'batch_import' ? 'batch_import' : (job.data.job_type || 'single');
     
     if (jobType === 'batch_import') {
         return await processBatchImport(job);
@@ -173,14 +174,38 @@ async function processBatchImport(job) {
             try {
                 await job.updateProgress(10 + Math.round((processedCount / totalFiles) * 80));
                 
+                logger.info({ batch_id, file: filePath }, '==== STARTING FILE PROCESSING ===');
+                
                 // Fetch document content from GitHub
                 logger.info({ batch_id, file: filePath }, 'Fetching and ingesting document');
                 const doc = await fetchGitHubFile(github_token, batch.repo_owner, batch.repo_name, filePath, branch);
                 
+                // Get the file SHA to use as source_file_sha256!
+                const fileFromTree = tree.find(f => f.path === filePath);
+                const fileSha = fileFromTree ? fileFromTree.sha : null;
+                
+                // Add meta to doc with source info!
+                const enrichedDoc = {
+                    ...doc,
+                    meta: {
+                        ...doc.meta,
+                        source_file_name: filePath,
+                        source_file_sha256: fileSha || `batch_${batch_id}_${filePath}`
+                    }
+                };
+                
+                // Add extra safe guards to ensure topics is an array
+                if (!enrichedDoc.topics && enrichedDoc.container?.topics) {
+                    enrichedDoc.topics = enrichedDoc.container.topics;
+                }
+                if (!Array.isArray(enrichedDoc.topics)) {
+                    enrichedDoc.topics = [];
+                }
+                
                 // Call existing ingestDocument service - SINGLE SOURCE OF TRUTH
-                logger.info({ batch_id, file: filePath, has_topics: !!doc.topics }, 'Calling ingestDocument');
+                logger.info({ batch_id, file: filePath, has_topics: !!enrichedDoc.topics, topic_count: enrichedDoc.topics.length }, 'Calling ingestDocument');
                 const result = await ingestDocument({ 
-                    payload: doc, 
+                    payload: enrichedDoc, 
                     source: 'batch_import',
                     batch_id 
                 });
@@ -192,7 +217,7 @@ async function processBatchImport(job) {
                     // Track successful file
                     batch.successful_files.push({
                         file_path: filePath,
-                        document_id: result.data?.document_id,
+                        document_id: result.summary?.document_id,
                         ingested_at: new Date()
                     });
                     successCount++;
@@ -201,7 +226,7 @@ async function processBatchImport(job) {
                     batch.failed_files = batch.failed_files.filter(f => f.file_path !== filePath);
                     
                     logger.info(
-                        { batch_id, file: filePath, document_id: result.data?.document_id },
+                        { batch_id, file: filePath, document_id: result.summary?.document_id },
                         'Document imported successfully'
                     );
                 } else {
@@ -209,12 +234,12 @@ async function processBatchImport(job) {
                     const existingFailed = batch.failed_files.find(f => f.file_path === filePath);
                     if (existingFailed) {
                         existingFailed.retry_count = (existingFailed.retry_count || 1) + 1;
-                        existingFailed.error = result.error || 'Unknown ingestion error';
+                        existingFailed.error = result.error || result.errors?.[0]?.message || 'Unknown ingestion error';
                         existingFailed.failed_at = new Date();
                     } else {
                         batch.failed_files.push({
                             file_path: filePath,
-                            error: result.error || 'Unknown ingestion error',
+                            error: result.error || result.errors?.[0]?.message || 'Unknown ingestion error',
                             failed_at: new Date(),
                             retry_count: 1
                         });
@@ -222,7 +247,7 @@ async function processBatchImport(job) {
                     failCount++;
                     
                     logger.warn(
-                        { batch_id, file: filePath, error: result.error },
+                        { batch_id, file: filePath, error: result.error || result.errors?.[0]?.message },
                         'Document ingestion failed'
                     );
                 }
@@ -234,8 +259,10 @@ async function processBatchImport(job) {
                 
                 // Save after every file for real-time progress
                 await batch.save();
+                logger.info({ batch_id, file: filePath }, '==== FILE PROCESSING COMPLETE ===');
                 
             } catch (error) {
+                logger.error({ err: error, batch_id, file: filePath, stack: error.stack }, '=== DOCUMENT PROCESSING ERROR ===');
                 processedCount++;
                 
                 // Track failed file
@@ -253,11 +280,6 @@ async function processBatchImport(job) {
                     });
                 }
                 failCount++;
-                
-                logger.error(
-                    { err: error, batch_id, file: filePath },
-                    'Document processing error'
-                );
                 
                 // Continue processing - don't crash the batch
                 await batch.save();

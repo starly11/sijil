@@ -23,6 +23,27 @@ try {
 }
 
 /**
+ * Bulk replacement helper function to group operations in batches of 1000
+ */
+async function bulkReplace(Model, items, filterKey = '_id', session = null) {
+    if (!items || items.length === 0) return;
+    
+    const BATCH_SIZE = 1000;
+    for (let i = 0; i < items.length; i += BATCH_SIZE) {
+        const chunk = items.slice(i, i + BATCH_SIZE);
+        const operations = chunk.map(item => ({
+            replaceOne: {
+                filter: { [filterKey]: item[filterKey] },
+                replacement: item,
+                upsert: true
+            }
+        }));
+        
+        await Model.bulkWrite(operations, { session, ordered: false });
+    }
+}
+
+/**
  * Handles atomic orchestration writes via transactions, falling back to ordered writes if needed.
  */
 export async function persistIngestion({ documentRecord, bundles, versionInfo }) {
@@ -73,38 +94,18 @@ export async function persistIngestion({ documentRecord, bundles, versionInfo })
 
             // 2. Write split collections sequentially
             if (bundles.normalizedTopics.length > 0) {
-                for (const item of bundles.normalizedTopics) {
-                    await Topic.replaceOne({ _id: item._id }, item, { upsert: true, session });
-                }
-                for (const item of bundles.normalizedTopicContents) {
-                    await TopicContent.replaceOne({ _id: item._id }, item, { upsert: true, session });
-                }
-                for (const item of bundles.normalizedTopicAssets) {
-                    await TopicAsset.replaceOne({ _id: item._id }, item, { upsert: true, session });
-                }
-                for (const item of bundles.normalizedTopicAssessments) {
-                    await TopicAssessment.replaceOne({ _id: item._id }, item, { upsert: true, session });
-                }
+                await bulkReplace(Topic, bundles.normalizedTopics, '_id', session);
+                await bulkReplace(TopicContent, bundles.normalizedTopicContents, '_id', session);
+                await bulkReplace(TopicAsset, bundles.normalizedTopicAssets, '_id', session);
+                await bulkReplace(TopicAssessment, bundles.normalizedTopicAssessments, '_id', session);
             }
 
             // 3. Populate Decentralized Global Slug Registries
-            for (const slugRec of bundles.slugRegistryRecords) {
-                await SlugRegistry.replaceOne(
-                    { _id: slugRec._id },
-                    slugRec,
-                    { upsert: true, session }
-                );
-            }
+            await bulkReplace(SlugRegistry, bundles.slugRegistryRecords, '_id', session);
 
             // 4. Safely evaluate and save Asset Records if the module configuration exists
             if (AssetRegistry && bundles.assetRegistryRecords.length > 0) {
-                for (const assetRec of bundles.assetRegistryRecords) {
-                    await AssetRegistry.replaceOne(
-                        { local_path: assetRec.local_path },
-                        assetRec,
-                        { upsert: true, session }
-                    );
-                }
+                await bulkReplace(AssetRegistry, bundles.assetRegistryRecords, 'local_path', session);
             }
 
             await session.commitTransaction();
@@ -120,19 +121,20 @@ export async function persistIngestion({ documentRecord, bundles, versionInfo })
             let assetCount = bundles.assetRegistryRecords.length;
             
             // Count formulas and mcqs from topic assessments
-            if (bundles.normalizedTopicAssessments) {
+            if (Array.isArray(bundles.normalizedTopicAssessments)) {
                 bundles.normalizedTopicAssessments.forEach(assessment => {
-                    if (assessment.mcqs && Array.isArray(assessment.mcqs)) {
+                    if (!assessment) return;
+                    if (assessment && Array.isArray(assessment.mcqs)) {
                         mcqCount += assessment.mcqs.length;
                     }
                 });
             }
             
             // Count formulas from topic contents
-            if (bundles.normalizedTopicContents) {
+            if (Array.isArray(bundles.normalizedTopicContents)) {
                 bundles.normalizedTopicContents.forEach(content => {
-                    if (content.content_blocks && Array.isArray(content.content_blocks)) {
-                        formulaCount += content.content_blocks.filter(b => b.type === 'formula').length;
+                    if (content && Array.isArray(content.content_blocks)) {
+                        formulaCount += content.content_blocks.filter(b => b && b.type === 'formula').length;
                     }
                 });
             }
@@ -267,38 +269,18 @@ export async function persistIngestion({ documentRecord, bundles, versionInfo })
 
         // 2. Write split collections sequentially
         if (bundles.normalizedTopics.length > 0) {
-            for (const item of bundles.normalizedTopics) {
-                await Topic.replaceOne({ _id: item._id }, item, { upsert: true });
-            }
-            for (const item of bundles.normalizedTopicContents) {
-                await TopicContent.replaceOne({ _id: item._id }, item, { upsert: true });
-            }
-            for (const item of bundles.normalizedTopicAssets) {
-                await TopicAsset.replaceOne({ _id: item._id }, item, { upsert: true });
-            }
-            for (const item of bundles.normalizedTopicAssessments) {
-                await TopicAssessment.replaceOne({ _id: item._id }, item, { upsert: true });
-            }
+            await bulkReplace(Topic, bundles.normalizedTopics, '_id');
+            await bulkReplace(TopicContent, bundles.normalizedTopicContents, '_id');
+            await bulkReplace(TopicAsset, bundles.normalizedTopicAssets, '_id');
+            await bulkReplace(TopicAssessment, bundles.normalizedTopicAssessments, '_id');
         }
 
         // 3. Populate Decentralized Global Slug Registries
-        for (const slugRec of bundles.slugRegistryRecords) {
-            await SlugRegistry.replaceOne(
-                { _id: slugRec._id },
-                slugRec,
-                { upsert: true }
-            );
-        }
+        await bulkReplace(SlugRegistry, bundles.slugRegistryRecords, '_id');
 
         // 4. Safely evaluate and save Asset Records if the module configuration exists
         if (AssetRegistry && bundles.assetRegistryRecords.length > 0) {
-            for (const assetRec of bundles.assetRegistryRecords) {
-                await AssetRegistry.replaceOne(
-                    { local_path: assetRec.local_path },
-                    assetRec,
-                    { upsert: true }
-                );
-            }
+            await bulkReplace(AssetRegistry, bundles.assetRegistryRecords, 'local_path');
         }
 
         logger.info({ document_id: documentRecord._id }, 'All relational collections successfully persisted (non-transactional fallback).');
@@ -313,22 +295,24 @@ export async function persistIngestion({ documentRecord, bundles, versionInfo })
         let assetCount = bundles.assetRegistryRecords.length;
         
         // Count formulas and mcqs from topic assessments
-        if (bundles.normalizedTopicAssessments) {
-            bundles.normalizedTopicAssessments.forEach(assessment => {
-                if (assessment.mcqs && Array.isArray(assessment.mcqs)) {
-                    mcqCount += assessment.mcqs.length;
-                }
-            });
-        }
-        
-        // Count formulas from topic contents
-        if (bundles.normalizedTopicContents) {
-            bundles.normalizedTopicContents.forEach(content => {
-                if (content.content_blocks && Array.isArray(content.content_blocks)) {
-                    formulaCount += content.content_blocks.filter(b => b.type === 'formula').length;
-                }
-            });
-        }
+            if (Array.isArray(bundles.normalizedTopicAssessments)) {
+                bundles.normalizedTopicAssessments.forEach(assessment => {
+                    if (!assessment) return;
+                    if (assessment && Array.isArray(assessment.mcqs)) {
+                        mcqCount += assessment.mcqs.length;
+                    }
+                });
+            }
+            
+            // Count formulas from topic contents
+            if (Array.isArray(bundles.normalizedTopicContents)) {
+                bundles.normalizedTopicContents.forEach(content => {
+                    if (!content) return;
+                    if (content && Array.isArray(content.content_blocks)) {
+                        formulaCount += content.content_blocks.filter(b => b && b.type === 'formula').length;
+                    }
+                });
+            }
 
         incrementStats({
             document_type: documentType,

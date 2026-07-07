@@ -1,3 +1,6 @@
+import { config } from '../config/env.js';
+import { connectDB } from '../config/db.js';
+import '../models/index.js'; // Register all Mongoose models
 import { createWorker } from './createWorker.js';
 import { QUEUE_NAMES } from '../queues/constants.js';
 import * as logger from '../utils/logger.js';
@@ -10,16 +13,31 @@ import processSearchIndex from './processors/searchIndex.processor.js';
 
 logger.info('=== INITIALIZING SIJIL-CORE BACKGROUND DISTRIBUTION CLUSTER ===');
 
-// Spin up individual standalone consumer instances concurrently
-const activeWorkers = [
-    createWorker(QUEUE_NAMES.INGESTION, processIngestion),
-    createWorker(QUEUE_NAMES.IMAGE_UPLOAD, processImageUpload),
-    createWorker(QUEUE_NAMES.SLUG_RESOLVER, processSlugResolver),
-    createWorker(QUEUE_NAMES.EXPORT_GEN, processExportGen),
-    createWorker(QUEUE_NAMES.SEARCH_INDEX, processSearchIndex),
-];
+let activeWorkers = [];
 
-logger.info(`Successfully booted ${activeWorkers.length} worker daemons concurrently.`);
+// Initialize dependencies before starting workers
+async function init() {
+    try {
+        await connectDB();
+        logger.info('✅ MongoDB connected successfully for workers');
+
+        // Spin up individual standalone consumer instances concurrently
+        activeWorkers = [
+            createWorker(QUEUE_NAMES.INGESTION, processIngestion),
+            createWorker(QUEUE_NAMES.IMAGE_UPLOAD, processImageUpload),
+            createWorker(QUEUE_NAMES.SLUG_RESOLVER, processSlugResolver),
+            createWorker(QUEUE_NAMES.EXPORT_GEN, processExportGen),
+            createWorker(QUEUE_NAMES.SEARCH_INDEX, processSearchIndex),
+        ];
+
+        logger.info(`Successfully booted ${activeWorkers.length} worker daemons concurrently.`);
+    } catch (err) {
+        logger.error({ error: err.message }, 'Failed to initialize workers');
+        process.exit(1);
+    }
+}
+
+init();
 
 /**
  * Graceful termination engine routing routine ensuring non-destructive pipeline shutdown operations.

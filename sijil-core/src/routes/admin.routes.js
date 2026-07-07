@@ -11,6 +11,7 @@ import TopicAssessment from '../models/topicAssessment.model.js';
 import { requireAdmin } from '../middleware/requireAdmin.js';
 import { config } from '../config/env.js';
 import * as logger from '../utils/logger.js';
+import { ingestionQueue } from '../queues/index.js';
 
 const router = Router();
 
@@ -322,26 +323,140 @@ router.get('/import/:batchId/report', requireAdmin, async (req, res, next) => {
         const batch = await ImportBatch.findOne({ batch_id: batchId });
         
         if (!batch) {
-            return res.status(404).json({ 
-                success: false, 
-                error: 'Import batch not found' 
+            return res.status(404).json({
+                success: false,
+                error: 'Import batch not found'
             });
         }
 
         if (!batch.report) {
-            return res.status(400).json({ 
-                success: false, 
-                error: 'Report not available yet' 
+            return res.status(400).json({
+                success: false,
+                error: 'Report not available yet'
             });
         }
 
-        return res.status(200).json({ 
-            success: true, 
-            data: batch.report 
+        return res.status(200).json({
+            success: true,
+            data: batch.report
         });
 
     } catch (error) {
         logger.error({ err: error }, 'Get report failed');
+        next(error);
+    }
+});
+
+/**
+ * POST /admin/import/:batchId/reset
+ * Reset a batch to start over
+ */
+router.post('/import/:batchId/reset', requireAdmin, async (req, res, next) => {
+    try {
+        const { batchId } = req.params;
+        
+        const batch = await ImportBatch.findOne({ batch_id: batchId });
+        
+        if (!batch) {
+            return res.status(404).json({
+                success: false,
+                error: 'Import batch not found'
+            });
+        }
+
+        // Remove any existing BullMQ job for this batch
+        try {
+            const jobId = `batch_${batchId}`;
+            const job = await ingestionQueue.getJob(jobId);
+            if (job) {
+                await job.remove();
+                logger.info({ batch_id: batchId, job_id: jobId }, 'Removed stuck job');
+            }
+        } catch (jobErr) {
+            logger.warn({ err: jobErr }, 'Failed to remove BullMQ job');
+        }
+
+        // Reset the batch
+        batch.status = 'READY';
+        batch.started_at = null;
+        batch.completed_at = null;
+        batch.imported_documents = 0;
+        batch.imported_topics = 0;
+        batch.imported_assets = 0;
+        batch.imported_assessments = 0;
+        batch.failed_documents = 0;
+        batch.failed_topics = 0;
+        batch.failed_assets = 0;
+        batch.failed_assessments = 0;
+        batch.successful_files = [];
+        batch.failed_files = [];
+        batch.warnings = [];
+        batch.errors = [];
+        batch.report = null;
+        batch.progress = {
+            scanning: { status: 'pending', percentage: 0 },
+            validating: { status: 'pending', percentage: 0 },
+            importing: { status: 'pending', percentage: 0, documents: 0, topics: 0, assets: 0, assessments: 0 },
+            indexing: { status: 'pending', percentage: 0 }
+        };
+        await batch.save();
+
+        // Log audit trail
+        await AuditLog.create({
+            action: 'IMPORT_RESET',
+            admin_id: req.admin_id || 'bootstrap_admin',
+            ip_address: req.ip,
+            batch_id: batchId,
+            result: 'success'
+        });
+
+        logger.info({ batch_id: batchId }, 'Batch import reset successfully');
+
+        return res.status(200).json({
+            success: true,
+            message: 'Import batch reset successfully',
+            data: { batch_id: batchId, status: batch.status }
+        });
+
+    } catch (error) {
+        logger.error({ err: error }, 'Reset batch failed');
+        next(error);
+    }
+});
+
+/**
+ * POST /admin/jobs/clear-all
+ * Clear all BullMQ jobs
+ */
+router.post('/jobs/clear-all', requireAdmin, async (req, res, next) => {
+    try {
+        const queues = [
+            ingestionQueue,
+            // Add other queues here if needed
+        ];
+
+        const results = [];
+
+        for (const queue of queues) {
+            const jobs = await queue.getJobs();
+            for (const job of jobs) {
+                await job.remove();
+            }
+            results.push({
+                queue: queue.name,
+                jobs_cleared: jobs.length
+            });
+            logger.info({ queue: queue.name, cleared: jobs.length }, 'Cleared queue jobs');
+        }
+
+        return res.status(200).json({
+            success: true,
+            message: 'All jobs cleared',
+            data: results
+        });
+
+    } catch (error) {
+        logger.error({ err: error }, 'Clear jobs failed');
         next(error);
     }
 });

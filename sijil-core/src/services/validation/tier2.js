@@ -9,11 +9,26 @@ export function applyTier2AutoFixes(rawParsed) {
     const repaired = structuredClone(rawParsed);
     const autoFixLog = [];
 
-    if (!repaired || !Array.isArray(repaired.topics)) {
+    if (!repaired) {
+        return { repaired, autoFixLog };
+    }
+    
+    // Ensure topics is an array
+    if (!Array.isArray(repaired.topics)) {
+        if (repaired.container && Array.isArray(repaired.container.topics)) {
+            repaired.topics = repaired.container.topics;
+        } else {
+            repaired.topics = [];
+        }
+    }
+
+    // Additional safety check - ensure topics is not null/undefined before forEach
+    if (!repaired.topics || !Array.isArray(repaired.topics)) {
         return { repaired, autoFixLog };
     }
 
     repaired.topics.forEach((topic) => {
+        if (!topic) return;
         const tId = topic?._id || 'unknown_topic';
 
         // 1. Structural SEO Field Length Limits Truncation
@@ -60,19 +75,20 @@ export function applyTier2AutoFixes(rawParsed) {
             let orderChanged = false;
 
             topic.content_blocks.forEach((block, orderIdx) => {
+                if (!block) return;
                 if (typeof block?.source_page === 'string') {
                     block.source_page = Number.parseInt(block.source_page, 10);
                 }
 
                 // 4. Sequential re-indexing for internal display orders
                 const targetOrder = orderIdx + 1;
-                if (block && block.block_order !== targetOrder) {
+                if (block.block_order !== targetOrder) {
                     block.block_order = targetOrder;
                     orderChanged = true;
                 }
 
                 // 5. Normalizing multiple choice response options
-                if (block?.type === "mcq") {
+                if (block.type === "mcq") {
                     normalizeMcqItem(block, tId, autoFixLog, `content_block index ${orderIdx}`);
                 }
             });
@@ -88,6 +104,7 @@ export function applyTier2AutoFixes(rawParsed) {
 
         if (Array.isArray(topic?.book_mcqs)) {
             topic.book_mcqs.forEach((mcq, idx) => {
+                if (!mcq) return;
                 normalizeMcqItem(mcq, tId, autoFixLog, `book_mcqs index ${idx}`);
             });
         }
