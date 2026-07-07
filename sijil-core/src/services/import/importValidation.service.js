@@ -63,13 +63,26 @@ export async function fetchFileContent(token, owner, name, path) {
     } else if (data.download_url) {
         // For larger files, use download_url
         logger.info({ downloadUrl: data.download_url }, 'Using download_url for large file');
+        
+        const downloadHeaders = {
+            'Accept': 'application/vnd.github.v3+json'
+        };
+        if (token) {
+            downloadHeaders['Authorization'] = `token ${token}`;
+        }
+        
         const downloadResponse = await fetch(data.download_url, {
-            headers: {
-                'Authorization': token ? `token ${token}` : undefined
-            }
+            headers: downloadHeaders
         });
         if (!downloadResponse.ok) {
-            throw new Error(`Failed to download ${path} via download_url: ${downloadResponse.status} ${downloadResponse.statusText}`);
+            const errorText = await downloadResponse.text();
+            logger.error({ 
+                status: downloadResponse.status, 
+                statusText: downloadResponse.statusText,
+                url: data.download_url,
+                responseBody: errorText.substring(0, 500)
+            }, 'Download URL failed');
+            throw new Error(`Failed to download ${path} via download_url: ${downloadResponse.status} ${downloadResponse.statusText} - ${errorText.substring(0, 200)}`);
         }
         content = await downloadResponse.text();
         logger.info({ contentLength: content.length, contentPreview: content.substring(0, 200) }, 'File content from download_url');
