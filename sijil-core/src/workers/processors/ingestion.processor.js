@@ -224,8 +224,19 @@ async function processBatchImport(job) {
             throw new Error(`ImportBatch not found: ${batch_id}`);
         }
         
-        // Handle retry case - update status to RETRYING
-        if (retry_only) {
+        // Handle different batch states appropriately
+        if (batch.status === 'CANCELLED') {
+            logger.warn({ batch_id, status: batch.status }, 'Batch was cancelled before starting');
+            return { status: 'cancelled', reason: 'Batch was cancelled' };
+        }
+        
+        if (batch.status === 'COMPLETED' && !retry_only) {
+            logger.warn({ batch_id, status: batch.status }, 'Batch already completed');
+            return { status: 'skipped', reason: `Batch already ${batch.status}` };
+        }
+        
+        // Update status based on current state
+        if (retry_only && batch.failed_files.length > 0) {
             batch.status = 'RETRYING';
             batch.progress.importing.status = 'in_progress';
             await batch.save();
@@ -234,16 +245,8 @@ async function processBatchImport(job) {
             batch.status = 'IMPORTING';
             batch.progress.importing.status = 'in_progress';
             await batch.save();
-        } else if (batch.status === 'COMPLETED' && !retry_only) {
-            logger.warn({ batch_id, status: batch.status }, 'Batch already completed');
-            return { status: 'skipped', reason: `Batch already ${batch.status}` };
         }
-        
-        // Check for CANCELLED status
-        if (batch.status === 'CANCELLED') {
-            logger.warn({ batch_id, status: batch.status }, 'Batch was cancelled');
-            return { status: 'cancelled', reason: 'Batch was cancelled' };
-        }
+        // If status is already IMPORTING or RETRYING, continue without changing
         
         // Determine branch from repo_url or default to main
         const branchMatch = batch.repo_url.match(/\/tree\/([^/]+)/);
