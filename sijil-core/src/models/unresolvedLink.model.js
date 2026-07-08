@@ -14,4 +14,7 @@ const unresolvedLinkSchema = new Schema({
     created_at: { type: Date, default: Date.now }
 });
 
+// Compound unique index for idempotency (prevents duplicate entries for same slug_ref + source_topic_id)
+unresolvedLinkSchema.index({ slug_ref: 1, source_topic_id: 1 }, { unique: true });
+
 export default mongoose.model('UnresolvedLink', unresolvedLinkSchema, 'unresolved_links');
