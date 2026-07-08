@@ -3,6 +3,47 @@ import * as logger from '../../utils/logger.js';
 import { ingestDocument } from '../../services/ingestion/ingestDocument.service.js';
 import ImportBatch from '../../models/importBatch.model.js';
 
+
+const RETRY_CONFIG = {
+    maxRetries: 5,
+    initialDelayMs: 1000,
+    maxDelayMs: 30000,
+    timeoutMs: 30000
+};
+
+function classifyError(error) {
+    const status = error.response?.status;
+    const code = error.code;
+    
+    if (code === 'ETIMEDOUT' || code === 'ECONNRESET' || code === 'ENOTFOUND') {
+        return { isRetryable: true, category: 'NETWORK_ERROR' };
+    }
+    if (status >= 500 && status < 600) {
+        return { isRetryable: true, category: 'SERVER_ERROR' };
+    }
+    if (status === 429) {
+        return { isRetryable: true, category: 'RATE_LIMITED' };
+    }
+    if (status >= 400 && status < 500) {
+        return { isRetryable: false, category: 'CLIENT_ERROR' };
+    }
+    return { isRetryable: true, category: 'UNKNOWN_ERROR' };
+}
+
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function calculateBackoffDelay(attempt) {
+    const exponentialDelay = Math.min(
+        RETRY_CONFIG.initialDelayMs * Math.pow(2, attempt),
+        RETRY_CONFIG.maxDelayMs
+    );
+    const jitter = exponentialDelay * 0.25 * (Math.random() * 2 - 1);
+    return Math.round(exponentialDelay + jitter);
+}
+
+
 /**
  * Handles incoming JSON payload transformation logic.
  * Supports both single document ingestion and batch import jobs.
@@ -55,20 +96,54 @@ export default async function processIngestion(job) {
  * @param {string} branch - Branch name (default: main)
  * @returns {Promise<Object>} Parsed JSON content
  */
-async function fetchGitHubFile(token, owner, name, path, branch = 'main') {
+async function fetchGitHubFile(token, owner, name, path, branch = 'main', context = {}) {
     const url = `https://raw.githubusercontent.com/${owner}/${name}/${branch}/${path}`;
+    let lastError = null;
     
-    logger.debug({ url, path }, 'Fetching file from GitHub');
+    for (let attempt = 0; attempt <= RETRY_CONFIG.maxRetries; attempt++) {
+        try {
+            logger.debug({ ...context, url, attempt: attempt + 1 }, 'Fetching file from GitHub');
+            
+            const response = await axios.get(url, {
+                headers: {
+                    'Authorization': `token ${token}`,
+                    'Accept': 'application/vnd.github.v3.raw',
+                    'User-Agent': 'sijil-import-service/1.0'
+                },
+                timeout: RETRY_CONFIG.timeoutMs,
+                validateStatus: (status) => status < 500
+            });
+            
+            if (response.status >= 400 && response.status < 500) {
+                throw new Error(`GitHub API returned ${response.status}: ${response.statusText}`);
+            }
+            
+            return response.data;
+            
+        } catch (error) {
+            lastError = error;
+            const { isRetryable, category } = classifyError(error);
+            
+            logger.warn({
+                ...context,
+                attempt: attempt + 1,
+                error: error.message,
+                category,
+                isRetryable
+            }, `GitHub fetch failed (attempt ${attempt + 1}/${RETRY_CONFIG.maxRetries + 1})`);
+            
+            if (!isRetryable || attempt >= RETRY_CONFIG.maxRetries) {
+                logger.error({ ...context, err: error, category }, 'GitHub fetch failed permanently');
+                throw error;
+            }
+            
+            const delay = calculateBackoffDelay(attempt);
+            logger.info({ ...context, delayMs: delay }, 'Waiting before retry');
+            await sleep(delay);
+        }
+    }
     
-    const response = await axios.get(url, {
-        headers: {
-            'Authorization': `token ${token}`,
-            'Accept': 'application/vnd.github.v3+json'
-        },
-        timeout: 30000 // 30 second timeout
-    });
-    
-    return response.data;
+    throw lastError || new Error('Unknown error during GitHub fetch');
 }
 
 /**
@@ -79,20 +154,54 @@ async function fetchGitHubFile(token, owner, name, path, branch = 'main') {
  * @param {string} branch - Branch name (default: main)
  * @returns {Promise<Array>} List of files
  */
-async function getRepoTree(token, owner, name, branch = 'main') {
+async function getRepoTree(token, owner, name, branch = 'main', context = {}) {
     const url = `https://api.github.com/repos/${owner}/${name}/git/trees/${branch}?recursive=1`;
+    let lastError = null;
     
-    logger.debug({ url, repo: `${owner}/${name}`, branch }, 'Fetching repository tree');
+    for (let attempt = 0; attempt <= RETRY_CONFIG.maxRetries; attempt++) {
+        try {
+            logger.debug({ ...context, url, repo: `${owner}/${name}`, branch, attempt: attempt + 1 }, 'Fetching repository tree');
+            
+            const response = await axios.get(url, {
+                headers: {
+                    'Authorization': `token ${token}`,
+                    'Accept': 'application/vnd.github.v3+json',
+                    'User-Agent': 'sijil-import-service/1.0'
+                },
+                timeout: RETRY_CONFIG.timeoutMs,
+                validateStatus: (status) => status < 500
+            });
+            
+            if (response.status >= 400 && response.status < 500) {
+                throw new Error(`GitHub API returned ${response.status}: ${response.statusText}`);
+            }
+            
+            return response.data.tree || [];
+            
+        } catch (error) {
+            lastError = error;
+            const { isRetryable, category } = classifyError(error);
+            
+            logger.warn({
+                ...context,
+                attempt: attempt + 1,
+                error: error.message,
+                category,
+                isRetryable
+            }, `Repo tree fetch failed (attempt ${attempt + 1}/${RETRY_CONFIG.maxRetries + 1})`);
+            
+            if (!isRetryable || attempt >= RETRY_CONFIG.maxRetries) {
+                logger.error({ ...context, err: error, category }, 'Repo tree fetch failed permanently');
+                throw error;
+            }
+            
+            const delay = calculateBackoffDelay(attempt);
+            logger.info({ ...context, delayMs: delay }, 'Waiting before retry');
+            await sleep(delay);
+        }
+    }
     
-    const response = await axios.get(url, {
-        headers: {
-            'Authorization': `token ${token}`,
-            'Accept': 'application/vnd.github.v3+json'
-        },
-        timeout: 30000
-    });
-    
-    return response.data.tree || [];
+    throw lastError || new Error('Unknown error during repo tree fetch');
 }
 
 /**
@@ -127,7 +236,7 @@ async function processBatchImport(job) {
         
         // Get repository tree
         await job.updateProgress(10);
-        const tree = await getRepoTree(github_token, batch.repo_owner, batch.repo_name, branch);
+        const tree = await getRepoTree(github_token, batch.repo_owner, batch.repo_name, branch, { batch_id });
         
         // Get all JSON files
         const allFiles = tree
@@ -169,7 +278,9 @@ async function processBatchImport(job) {
             'Starting file processing loop'
         );
         
-        // Process each file
+        // Process each file with batching to reduce database writes
+        const BATCH_SAVE_INTERVAL = 5;
+        
         for (const filePath of filesToProcess) {
             try {
                 await job.updateProgress(10 + Math.round((processedCount / totalFiles) * 80));
@@ -178,7 +289,14 @@ async function processBatchImport(job) {
                 
                 // Fetch document content from GitHub
                 logger.info({ batch_id, file: filePath }, 'Fetching and ingesting document');
-                const doc = await fetchGitHubFile(github_token, batch.repo_owner, batch.repo_name, filePath, branch);
+                const doc = await fetchGitHubFile(
+                    github_token, 
+                    batch.repo_owner, 
+                    batch.repo_name, 
+                    filePath, 
+                    branch,
+                    { batch_id, file: filePath }
+                );
                 
                 // Get the file SHA to use as source_file_sha256!
                 const fileFromTree = tree.find(f => f.path === filePath);
@@ -254,13 +372,17 @@ async function processBatchImport(job) {
                     );
                 }
                 
-                // Update progress counters
+                // Update progress counters in memory
                 batch.imported_documents = successCount;
                 batch.progress.importing.documents = successCount;
                 batch.progress.importing.percentage = Math.round((successCount / allFiles.length) * 100);
                 
-                // Save after every file for real-time progress
-                await batch.save();
+                // Batch database saves to reduce write load
+                if ((processedCount % BATCH_SAVE_INTERVAL === 0) || processedCount === totalFiles) {
+                    await batch.save();
+                    logger.debug({ batch_id, processedCount, interval: BATCH_SAVE_INTERVAL }, 'Batch progress saved to database');
+                }
+                
                 logger.info({ batch_id, file: filePath }, '==== FILE PROCESSING COMPLETE ===');
                 
             } catch (error) {
@@ -284,7 +406,9 @@ async function processBatchImport(job) {
                 failCount++;
                 
                 // Continue processing - don't crash the batch
-                await batch.save();
+                if ((processedCount % BATCH_SAVE_INTERVAL === 0) || processedCount === totalFiles) {
+                    await batch.save();
+                }
             }
         }
         
