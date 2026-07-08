@@ -33,7 +33,8 @@ export function enrichFiguresWithUrls(figures) {
   
   return figures.map(fig => ({
     ...fig,
-    image_url: buildAssetUrl(fig.image_path_local)
+    image_url: buildAssetUrl(fig.image_path_local || fig.url || ''),
+    url: fig.url || buildAssetUrl(fig.image_path_local || ''),
   }));
 }
 

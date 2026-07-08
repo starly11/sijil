@@ -23,8 +23,7 @@ import Document from '../../models/document.model.js';
  * @param {string} [params.rawText] - Optional raw text for hash computation (if already extracted).
  * @returns {Promise<Object>} Operational processing audit summary telemetry.
  */
-export async function ingestDocument({ payload, source = 'system', existingDocumentId, rawText }) {
-    // Create profiler for this ingestion
+export async function ingestDocument({ payload, source = 'system', existingDocumentId, rawText, batchMode = false, deferCascade = false }) {
     const profiler = createProfiler('ingestion');
     setCurrentProfiler(profiler);
     profiler.startTimer('Total');
@@ -38,34 +37,34 @@ export async function ingestDocument({ payload, source = 'system', existingDocum
     }
     profiler.stopTimer('Parse');
 
-    const trackingId = generateEntityId('ingest');
-    // Support multiple metadata field locations for flexibility
+    const trackingId = batchMode ? null : generateEntityId('ingest');
     const sourceSha = parsedPayload?.ingest_metadata?.source_file_sha256 
                    || parsedPayload?.meta?.source_file_sha256 
                    || parsedPayload?.source_file_sha256 
-                   || `unknown_sha256_${trackingId}`;
+                   || `unknown_sha256_${trackingId || Date.now()}`;
     const sourceFileName = parsedPayload?.ingest_metadata?.source_file_name 
                         || parsedPayload?.meta?.source_file_name 
                         || parsedPayload?.source_file_name 
                         || 'unknown_file';
 
-    logger.info({ trackingId, sourceSha }, `Creating early ingest tracking entry inside database...`);
+    if (!batchMode) {
+        logger.info({ trackingId, sourceSha }, `Creating early ingest tracking entry inside database...`);
 
-    // Register early 'processing' lifecycle hook state
-    const trackingStartTime = process.hrtime.bigint();
-    const trackingRecord = await IngestQueue.create({
-        _id: trackingId,
-        source_file_name: sourceFileName,
-        source_file_sha256: sourceSha,
-        status: 'processing',
-        source: source,
-        error_log: [],
-        created_at: new Date(),
-        updated_at: new Date()
-    });
-    const trackingEndTime = process.hrtime.bigint();
-    const trackingDurationMs = Number(trackingEndTime - trackingStartTime) / 1000000;
-    profiler.trackMongoOperation(IngestQueue.collection.name, 'create', trackingDurationMs, 1);
+        const trackingStartTime = process.hrtime.bigint();
+        await IngestQueue.create({
+            _id: trackingId,
+            source_file_name: sourceFileName,
+            source_file_sha256: sourceSha,
+            status: 'processing',
+            source: source,
+            error_log: [],
+            created_at: new Date(),
+            updated_at: new Date()
+        });
+        const trackingEndTime = process.hrtime.bigint();
+        const trackingDurationMs = Number(trackingEndTime - trackingStartTime) / 1000000;
+        profiler.trackMongoOperation(IngestQueue.collection.name, 'create', trackingDurationMs, 1);
+    }
 
     try {
         profiler.startTimer('Validation');
@@ -78,31 +77,33 @@ export async function ingestDocument({ payload, source = 'system', existingDocum
         if (!validationResult.valid) {
             const errorPayload = validationResult.errors || [{ message: 'Validation pipeline rejected payload properties shape.' }];
 
-            const updateStartTime = process.hrtime.bigint();
-            await IngestQueue.updateOne(
-                { _id: trackingId },
-                {
-                    status: 'error',
-                    error_log: errorPayload.map(e => ({ message: e.message || JSON.stringify(e), timestamp: new Date() })),
-                    updated_at: new Date()
-                }
-            );
-            const updateEndTime = process.hrtime.bigint();
-            const updateDurationMs = Number(updateEndTime - updateStartTime) / 1000000;
-            profiler.trackMongoOperation(IngestQueue.collection.name, 'updateOne', updateDurationMs, 0);
+            if (!batchMode && trackingId) {
+                const updateStartTime = process.hrtime.bigint();
+                await IngestQueue.updateOne(
+                    { _id: trackingId },
+                    {
+                        status: 'error',
+                        error_log: errorPayload.map(e => ({ message: e.message || JSON.stringify(e), timestamp: new Date() })),
+                        updated_at: new Date()
+                    }
+                );
+                const updateEndTime = process.hrtime.bigint();
+                const updateDurationMs = Number(updateEndTime - updateStartTime) / 1000000;
+                profiler.trackMongoOperation(IngestQueue.collection.name, 'updateOne', updateDurationMs, 0);
+            }
             profiler.incrementRepeatedWork('validations');
 
-            logger.error({ trackingId }, 'Ingestion aborted due to validation criteria failure.');
+            logger.error({ trackingId, file: sourceFileName }, 'Ingestion aborted due to validation criteria failure.');
             profiler.stopTimer('Total');
             profiler.printSummary(sourceFileName);
             return { success: false, tracking_id: trackingId, status: 'error', errors: errorPayload };
         }
 
-        // STEP 1: Compute content hash for duplicate detection
+        // STEP 1: Compute content hash for duplicate detection (skip in batch mode for speed)
         const textToHash = rawText || parsedPayload?.raw_text || '';
         let versionInfo = { isUpdate: false, documentVersion: 1, parentDocumentId: null, previousTopics: [] };
         
-        if (textToHash && typeof textToHash === 'string') {
+        if (!batchMode && textToHash && typeof textToHash === 'string') {
             const contentHash = computeContentHash(textToHash);
             logger.info({ contentHash }, 'Content hash computed');
 
@@ -185,58 +186,65 @@ export async function ingestDocument({ payload, source = 'system', existingDocum
             documentRecord, 
             bundles,
             versionInfo,
-            profiler
+            profiler,
+            skipTransaction: batchMode
         });
         profiler.stopTimer('MongoDB Persistence');
 
-        // Step 7 & 9: Cascade control down to specialized background queues
-        logger.info({ trackingId }, 'Enqueuing relational background cascade task handlers...');
+        let slugJob = null;
+        let searchJob = null;
 
-        profiler.startTimer('Slug Queue');
-        const slugJob = await slugResolverQueue.add(`resolve:${bundles.documentId}`, {
-            topic_id: bundles.documentId,
-            document_id: bundles.documentId,
-            unresolved_count: bundles.topicRefs.length,
-            context: 'ingestion_cascade'
-        });
-        profiler.stopTimer('Slug Queue');
+        if (!deferCascade) {
+            logger.info({ trackingId }, 'Enqueuing relational background cascade task handlers...');
 
-        profiler.startTimer('Search Queue');
-        const searchJob = await searchIndexQueue.add(`index:${bundles.documentId}`, {
-            topic_id: bundles.documentId,
-            document_id: bundles.documentId,
-            context: 'ingestion_cascade'
-        });
-        profiler.stopTimer('Search Queue');
+            profiler.startTimer('Slug Queue');
+            slugJob = await slugResolverQueue.add(`resolve:${bundles.documentId}`, {
+                topic_id: bundles.documentId,
+                document_id: bundles.documentId,
+                unresolved_count: bundles.topicRefs.length,
+                context: 'ingestion_cascade'
+            });
+            profiler.stopTimer('Slug Queue');
+
+            profiler.startTimer('Search Queue');
+            searchJob = await searchIndexQueue.add(`index:${bundles.documentId}`, {
+                topic_id: bundles.documentId,
+                document_id: bundles.documentId,
+                context: 'ingestion_cascade'
+            });
+            profiler.stopTimer('Search Queue');
+        }
 
         // Step 10: Complete tracking state modifications
-        profiler.startTimer('Batch Update');
         const completionSummary = {
             document_id: bundles.documentId,
             total_topics_processed: bundles.topicRefs.length,
-            slug_resolver_job_id: slugJob.id,
-            search_index_job_id: searchJob.id,
+            slug_resolver_job_id: slugJob?.id || null,
+            search_index_job_id: searchJob?.id || null,
             auto_fix_log_count: cleanData.autoFixLog?.length || 0,
             flags_raised: cleanData.flags || [],
             is_update: versionInfo.isUpdate,
             document_version: versionInfo.documentVersion.toString()
         };
 
-        const batchUpdateStartTime = process.hrtime.bigint();
-        await IngestQueue.updateOne(
-            { _id: trackingId },
-            {
-                status: 'complete',
-                processing_summary: completionSummary,
-                updated_at: new Date()
-            }
-        );
-        const batchUpdateEndTime = process.hrtime.bigint();
-        const batchUpdateDurationMs = Number(batchUpdateEndTime - batchUpdateStartTime) / 1000000;
-        profiler.trackMongoOperation(IngestQueue.collection.name, 'updateOne', batchUpdateDurationMs, 0);
-        profiler.stopTimer('Batch Update');
+        if (!batchMode && trackingId) {
+            profiler.startTimer('Batch Update');
+            const batchUpdateStartTime = process.hrtime.bigint();
+            await IngestQueue.updateOne(
+                { _id: trackingId },
+                {
+                    status: 'complete',
+                    processing_summary: completionSummary,
+                    updated_at: new Date()
+                }
+            );
+            const batchUpdateEndTime = process.hrtime.bigint();
+            const batchUpdateDurationMs = Number(batchUpdateEndTime - batchUpdateStartTime) / 1000000;
+            profiler.trackMongoOperation(IngestQueue.collection.name, 'updateOne', batchUpdateDurationMs, 0);
+            profiler.stopTimer('Batch Update');
+        }
 
-        logger.info({ trackingId, document_id: bundles.documentId }, 'Ingestion workflow completed cleanly.');
+        logger.info({ trackingId, document_id: bundles.documentId, file: sourceFileName }, 'Ingestion workflow completed cleanly.');
 
         profiler.stopTimer('Total');
         profiler.printSummary(sourceFileName);
@@ -253,18 +261,20 @@ export async function ingestDocument({ payload, source = 'system', existingDocum
         profiler.printSummary(sourceFileName);
 
         try {
-            const errorUpdateStartTime = process.hrtime.bigint();
-            await IngestQueue.updateOne(
-                { _id: trackingId },
-                {
-                    status: 'error',
-                    error_log: [{ message: globalPipelineError.message, stack: globalPipelineError.stack, timestamp: new Date() }],
-                    updated_at: new Date()
-                }
-            );
-            const errorUpdateEndTime = process.hrtime.bigint();
-            const errorUpdateDurationMs = Number(errorUpdateEndTime - errorUpdateStartTime) / 1000000;
-            profiler.trackMongoOperation(IngestQueue.collection.name, 'updateOne', errorUpdateDurationMs, 0);
+            if (!batchMode && trackingId) {
+                const errorUpdateStartTime = process.hrtime.bigint();
+                await IngestQueue.updateOne(
+                    { _id: trackingId },
+                    {
+                        status: 'error',
+                        error_log: [{ message: globalPipelineError.message, stack: globalPipelineError.stack, timestamp: new Date() }],
+                        updated_at: new Date()
+                    }
+                );
+                const errorUpdateEndTime = process.hrtime.bigint();
+                const errorUpdateDurationMs = Number(errorUpdateEndTime - errorUpdateStartTime) / 1000000;
+                profiler.trackMongoOperation(IngestQueue.collection.name, 'updateOne', errorUpdateDurationMs, 0);
+            }
         } catch (writeErr) {
             logger.error(`Failed to record fault recovery telemetry to tracking database: ${writeErr.message}`);
         }

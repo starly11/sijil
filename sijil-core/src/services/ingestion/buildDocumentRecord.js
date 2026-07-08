@@ -32,11 +32,18 @@ export function buildDocumentRecord(validatedData, documentId, documentSlug, top
 
     if (Array.isArray(normalizedBundles.normalizedTopicAssessments)) {
         normalizedBundles.normalizedTopicAssessments.forEach(a => {
-            if (Array.isArray(a.short_questions)) {
-                totalShortQs += a.short_questions.length;
+            if (Array.isArray(a.book_short_questions)) {
+                totalShortQs += a.book_short_questions.length;
             }
         });
     }
+
+    const totalKeyTerms = Array.isArray(normalizedBundles.normalizedTopicContents)
+        ? normalizedBundles.normalizedTopicContents.reduce(
+            (sum, c) => sum + (Array.isArray(c.key_terms) ? c.key_terms.length : 0),
+            0
+        )
+        : 0;
 
     // Build document with both top-level title (backward compatibility) and document_metadata
     return {
@@ -56,10 +63,10 @@ export function buildDocumentRecord(validatedData, documentId, documentSlug, top
             language: docMeta.language || 'english'
         },
         ingest_metadata: {
-            ingest_id: validatedData.ingest_id || 'ingest-dummy-id',
-            source_file_sha256: validatedData.source_file_sha256 || '',
-            source_file_name: validatedData.source_file_name || '',
-            status: 'complete'
+            ingest_id: validatedData.ingest_metadata?.ingest_id || validatedData.ingest_id || 'ingest-dummy-id',
+            source_file_sha256: validatedData.ingest_metadata?.source_file_sha256 || validatedData.source_file_sha256 || '',
+            source_file_name: validatedData.ingest_metadata?.source_file_name || validatedData.source_file_name || '',
+            status: validatedData.ingest_metadata?.status || 'complete'
         },
         container: {
             _id: container._id || container.id || normalizedBundles.containerId,
@@ -86,7 +93,7 @@ export function buildDocumentRecord(validatedData, documentId, documentSlug, top
             total_flashcards: totalFlashcards,
             total_short_questions: totalShortQs,
             total_numerical_problems: 0, // Fallback hooks for future calculation requirements
-            total_key_terms: 0
+            total_key_terms: totalKeyTerms
         }
     };
 }

@@ -135,6 +135,16 @@ router.post('/import/start', requireAdmin, async (req, res, next) => {
  * GET /admin/import/:batchId
  * Get import status and progress
  */
+function computeImportProgress(batch) {
+    if (['COMPLETED', 'PARTIAL_SUCCESS'].includes(batch.status)) {
+        return 100;
+    }
+    if (['FAILED', 'CANCELLED'].includes(batch.status)) {
+        return batch.progress?.importing?.percentage || 0;
+    }
+    return batch.progress?.importing?.percentage ?? 0;
+}
+
 router.get('/import/:batchId', requireAdmin, async (req, res, next) => {
     try {
         const { batchId } = req.params;
@@ -155,14 +165,8 @@ router.get('/import/:batchId', requireAdmin, async (req, res, next) => {
                 status: batch.status,
                 repo_url: batch.repo_url,
                 commit_sha: batch.commit_sha,
-                progress: batch.progress ? Math.round(
-                    (
-                        (batch.progress.scanning?.percentage || 0) +
-                        (batch.progress.validating?.percentage || 0) +
-                        (batch.progress.importing?.percentage || 0) +
-                        (batch.progress.indexing?.percentage || 0)
-                    ) / 4
-                ) : 0,
+                progress: computeImportProgress(batch),
+                progress_stages: batch.progress || null,
                 counts: {
                     total_documents: batch.total_documents || 0,
                     total_topics: batch.total_topics || 0,

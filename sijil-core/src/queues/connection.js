@@ -1,7 +1,6 @@
 import Redis from 'ioredis';
 import { config } from '../config/env.js';
 
-// Create a mock BullMQ connection if Redis fails
 const createMockConnection = () => ({
     on: () => {},
     once: () => {},
@@ -9,52 +8,69 @@ const createMockConnection = () => ({
     status: 'ready',
 });
 
-let cachedConnection = null;
+let cachedQueueConnection = null;
 
 /**
- * Creates a Redis connection specifically configured for BullMQ
- * Uses a singleton pattern to avoid multiple connections causing timeouts
+ * Creates a Redis connection for BullMQ.
+ * Workers need dedicated connections so lock renewal isn't starved during long jobs.
+ *
+ * IMPORTANT: Never set commandTimeout — BullMQ workers use blocking commands
+ * (BRPOP) that intentionally wait indefinitely for new jobs.
+ * @param {{ dedicated?: boolean }} options
  * @returns {Redis}
  */
-export function createBullMQConnection() {
-    // Return cached connection if available
-    if (cachedConnection) {
-        return cachedConnection;
+export function createBullMQConnection({ dedicated = false } = {}) {
+    if (!dedicated && cachedQueueConnection) {
+        return cachedQueueConnection;
     }
 
     try {
+        const isSecure = config.REDIS_URL.startsWith('rediss://');
+
         const connection = new Redis(config.REDIS_URL, {
             maxRetriesPerRequest: null,
             enableReadyCheck: false,
             lazyConnect: true,
-            connectTimeout: 5000, // Increased timeout
+            connectTimeout: 10000,
+            keepAlive: 10000,
             retryStrategy: (times) => {
-                if (times > 3) {
-                    console.warn(`⚠️  Redis connection failed after ${times} attempts, using mock`);
+                if (times > 30) {
                     return null;
                 }
-                return Math.min(times * 200, 2000);
+                return Math.min(times * 200, 3000);
             },
-            tls: config.REDIS_URL.startsWith('rediss://') ? {} : undefined,
+            ...(isSecure && { tls: {} }),
         });
 
         connection.on('connect', () => {
-            console.log('⚡ BullMQ Redis connection established');
+            if (!dedicated) {
+                console.log('⚡ BullMQ Redis connection established');
+            }
         });
 
         connection.on('error', (error) => {
+            // Blocking-command timeouts are expected if commandTimeout is misconfigured;
+            // with correct config these should be rare network blips only.
+            if (error.message === 'Command timed out') {
+                console.warn(`⚠️  BullMQ Redis command timeout (check commandTimeout is NOT set): ${error.message}`);
+                return;
+            }
             console.warn(`⚠️  BullMQ Redis error: ${error.message}`);
-            // Don't cache failed connections
-            cachedConnection = null;
+            if (!dedicated) {
+                cachedQueueConnection = null;
+            }
         });
 
         connection.on('close', () => {
-            console.warn('⚠️  BullMQ Redis connection closed');
-            cachedConnection = null;
+            if (!dedicated) {
+                cachedQueueConnection = null;
+            }
         });
 
-        // Cache the connection
-        cachedConnection = connection;
+        if (!dedicated) {
+            cachedQueueConnection = connection;
+        }
+
         return connection;
     } catch (error) {
         console.warn(`⚠️  Failed to create BullMQ connection: ${error.message}, using mock`);

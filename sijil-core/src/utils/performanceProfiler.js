@@ -5,6 +5,7 @@ class PerformanceProfiler {
   constructor(name) {
     this.name = name;
     this.timers = new Map();
+    this.dbOperations = [];
     this.metrics = {
       timers: {},
       mongoDB: {
@@ -58,7 +59,7 @@ class PerformanceProfiler {
   // Increment MongoDB query count (alias for backward compatibility)
   trackMongoOperation(collectionName, operationType, durationMs, docsWritten = 0) {
     this.metrics.mongoDB.queries++;
-    
+
     // Track operation type counts
     const opLower = operationType.toLowerCase();
     if (opLower.includes('insert')) {
@@ -78,7 +79,7 @@ class PerformanceProfiler {
       if (!this.metrics.mongoDB.collections[collectionName]) {
         this.metrics.mongoDB.collections[collectionName] = { inserts: 0, updates: 0, deletes: 0, docsWritten: 0, operations: [] };
       }
-      
+
       if (opLower.includes('insert') || opLower.includes('bulk') || opLower.includes('insertmany')) {
         this.metrics.mongoDB.collections[collectionName].inserts++;
       } else if (opLower.includes('update')) {
@@ -96,6 +97,60 @@ class PerformanceProfiler {
   // Increment MongoDB query count
   incrementMongoQuery(collectionName, operationType, docsWritten = 0) {
     this.trackMongoOperation(collectionName, operationType, 0, docsWritten);
+  }
+
+  // Track individual database operation
+  trackDbOperation(operation, collectionName, docCount, durationMs) {
+    this.dbOperations.push({
+      operation,
+      collectionName,
+      docCount,
+      durationMs,
+      durationS: durationMs / 1000
+    });
+  }
+
+  // Print sorted DB operations table
+  printDbOperationsTable() {
+    if (this.dbOperations.length === 0) return;
+
+    // Sort by duration descending
+    const sortedOps = [...this.dbOperations].sort((a, b) => b.durationMs - a.durationMs);
+    const totalDbTime = sortedOps.reduce((sum, op) => sum + op.durationMs, 0);
+
+    logger.info('');
+    logger.info('=================================== DATABASE OPERATIONS ===================================');
+    logger.info('');
+    logger.info('Operation              Collection              Docs       Duration (ms)  Duration (s)  % of Total');
+    logger.info('-------------------------------------------------------------------------------------------');
+
+    for (const op of sortedOps) {
+      const percent = totalDbTime > 0 ? ((op.durationMs / totalDbTime) * 100).toFixed(1) : '0.0';
+      const opStr = op.operation.padEnd(20);
+      const collStr = op.collectionName.padEnd(25);
+      const docStr = op.docCount.toString().padStart(8);
+      const msStr = op.durationMs.toFixed(1).padStart(15);
+      const sStr = op.durationS.toFixed(3).padStart(13);
+      const percentStr = percent.padStart(10) + '%';
+      logger.info(`${opStr}${collStr}${docStr}${msStr}${sStr}${percentStr}`);
+    }
+
+    logger.info('-------------------------------------------------------------------------------------------');
+    const totalStr = 'TOTAL'.padEnd(20) + ''.padEnd(25) + ''.padStart(8) + totalDbTime.toFixed(1).padStart(15) + (totalDbTime / 1000).toFixed(3).padStart(13) + '  100.0%';
+    logger.info(totalStr);
+    logger.info('===========================================================================================');
+    logger.info('');
+
+    // Highlight the slowest operation
+    if (sortedOps.length > 0) {
+      const slowest = sortedOps[0];
+      const slowPercent = totalDbTime > 0 ? ((slowest.durationMs / totalDbTime) * 100).toFixed(1) : '0.0';
+
+      logger.info('⚠️ SLOWEST OPERATION:');
+      logger.info(`   ${slowest.operation} on ${slowest.collectionName} (${slowest.docCount} docs)`);
+      logger.info(`   Duration: ${slowest.durationS.toFixed(3)}s (${slowPercent}% of total DB time)`);
+      logger.info('');
+    }
   }
 
   // Track number of docs written to collection
@@ -123,7 +178,6 @@ class PerformanceProfiler {
   // Print performance summary
   printSummary(chapterName = 'Unknown Chapter') {
     const timers = this.metrics.timers;
-    const mongoDB = this.metrics.mongoDB;
     const totalTimeS = Object.values(timers).reduce((acc, t) => acc + (t.durationS || 0), 0);
 
     // Find bottleneck
@@ -137,45 +191,34 @@ class PerformanceProfiler {
     }
     const bottleneckPercent = totalTimeS > 0 ? (maxTime / totalTimeS) * 100 : 0;
 
-    logger.info('\n' + '='.repeat(70));
+    logger.info('\n' + '='.repeat(90));
     logger.info('INGESTION PERFORMANCE REPORT');
     logger.info('');
     logger.info(`Chapter: ${chapterName}`);
     logger.info('');
+
     for (const [name, timer] of Object.entries(timers)) {
       logger.info(name);
       logger.info(`  ${(timer.durationS || 0).toFixed(2)}s`);
+      logger.info(' ');
     }
-    logger.info('');
-    logger.info('MongoDB');
-    logger.info(`  Queries: ${mongoDB.queries}`);
-    logger.info(`  Insert Operations: ${mongoDB.inserts}`);
-    logger.info(`  Update Operations: ${mongoDB.updates}`);
-    logger.info(`  Bulk Writes: ${mongoDB.bulkWrites}`);
-    logger.info(`  InsertMany Calls: ${mongoDB.insertManys}`);
-    logger.info('');
-    logger.info('Collections Written:');
-    for (const [collName, collMetrics] of Object.entries(mongoDB.collections)) {
-      logger.info(`  ${collName}:`);
-      if (collMetrics.docsWritten) logger.info(`    ${collMetrics.docsWritten} documents`);
-    }
-    logger.info('');
-    logger.info('Repeated Work Detected:');
-    for (const [type, count] of Object.entries(this.metrics.repeatedWork)) {
-      if (count > 0) logger.info(`  ${type}: ${count} times`);
-    }
+
     logger.info('');
     logger.info('TOTAL TIME');
     logger.info('');
     logger.info(`  ${totalTimeS.toFixed(2)} seconds`);
     logger.info('');
+
     if (bottleneck && maxTime > 0) {
-      logger.info('⚠️  Largest Bottleneck:');
+      logger.info('⚠️ Largest Bottleneck:');
       logger.info(`  ${bottleneck}`);
       logger.info(`  ${maxTime.toFixed(2)} seconds`);
-      logger.info(`  ${bottleneckPercent.toFixed(1)}% of total execution time.`);
+      logger.info(`  ${bottleneckPercent.toFixed(1)}% of total execution time`);
     }
-    logger.info('='.repeat(70) + '\n');
+    logger.info('='.repeat(90) + '\n');
+
+    // Print detailed DB operations table
+    this.printDbOperationsTable();
   }
 }
 

@@ -30,6 +30,14 @@ const importBatchSchema = new mongoose.Schema({
         type: String,
         required: true
     },
+    path_filter: {
+        type: String,
+        default: null
+    },
+    document_files: {
+        type: [String],
+        default: []
+    },
     source_type: {
         type: String,
         enum: ['book', 'textbook', 'sop', 'manual', 'research_paper'],

@@ -7,8 +7,11 @@ import type { TopicFull, TopicPage as TopicPageType } from '@/lib/api/types';
 import type { Question } from '@/types/assessment';
 import { ContentBlockRenderer } from '@/components/topic-content/content-block-renderer';
 import { RelatedTopicsBlock } from '@/components/topic-content/related-topics-block';
+import { FlashcardDeck } from '@/components/topic-content/flashcard-deck';
+import { FaqSection } from '@/components/topic-content/faq-section';
 import QuizContainer from '@/components/assessment/quiz-container';
 import { ExportTrigger } from '@/components/export/export-trigger';
+import { getTopicThemeClasses } from '@/lib/topic-theme';
 import { Button } from '@/components/ui/button';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 
@@ -31,9 +34,12 @@ export async function generateMetadata({
       description: topic?.meta?.title ? `Take the ${topic.meta.title} assessment quiz` : '',
     };
   }
+
+  const seo = topic?.meta?.seo;
   return {
-    title: topic?.meta?.title || 'Topic Not Found',
-    description: topic?.meta?.title ? `Learn about ${topic.meta.title}` : '',
+    title: seo?.meta_title || topic?.meta?.title || 'Topic Not Found',
+    description: seo?.meta_description || (topic?.meta?.title ? `Learn about ${topic.meta.title}` : ''),
+    keywords: seo?.keywords || topic?.meta?.keywords,
   };
 }
 
@@ -56,6 +62,9 @@ export default async function TopicPage({ params }: TopicPageProps) {
     }
   }
   const navigation = pageData?.navigation || null;
+  const theme = getTopicThemeClasses(topic.meta?.design_meta?.primary_color_theme);
+  const flashcards = topic.assessments?.flashcards || [];
+  const faq = topic.faq || [];
 
   if (isQuiz) {
     const assessments = topic.assessments || {};
@@ -95,15 +104,22 @@ export default async function TopicPage({ params }: TopicPageProps) {
 
   return (
     <div className="container mx-auto px-4 py-8">
+      <div className={theme.container}>
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-3xl font-serif font-bold text-foreground">
+          <h1 className={`text-3xl font-serif font-bold ${theme.heading}`}>
             {topic.meta?.title}
           </h1>
           {topic.meta?.subject && (
             <p className="text-muted-foreground mt-2">
               {topic.meta.subject} • Grade {topic.meta.grade_numeric}
+              {topic.meta.section_number ? ` • Section ${topic.meta.section_number}` : ''}
+            </p>
+          )}
+          {topic.meta?.geo?.llm_summary && (
+            <p className="mt-3 max-w-3xl text-sm text-muted-foreground leading-relaxed">
+              {topic.meta.geo.llm_summary}
             </p>
           )}
         </div>
@@ -120,7 +136,7 @@ export default async function TopicPage({ params }: TopicPageProps) {
         {topic.content_blocks && topic.content_blocks.length > 0 ? (
           topic.content_blocks.map((block: any, index: number) => (
             <ContentBlockRenderer
-              key={block._id || `block-${index}`}
+              key={block._id || block.block_id || `block-${index}`}
               block={block}
               figures={topic.figures}
               tables={topic.tables}
@@ -137,6 +153,9 @@ export default async function TopicPage({ params }: TopicPageProps) {
 
       {/* Related Topics */}
       <RelatedTopicsBlock related_topics={topic.related_topics} />
+      
+      <FlashcardDeck flashcards={flashcards} />
+      <FaqSection faq={faq} />
 
       {/* Navigation */}
       {navigation && (
@@ -163,6 +182,7 @@ export default async function TopicPage({ params }: TopicPageProps) {
           )}
         </div>
       )}
+      </div>
     </div>
   );
 }

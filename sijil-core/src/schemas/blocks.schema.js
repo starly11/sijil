@@ -37,7 +37,8 @@ export const FigureBlockSchema = z.object({
     figure_number: z.string(),
     caption: z.string().min(1),
     alt: z.string().min(1).describe("Descriptive alt text for accessibility - must be at least 20 words describing the image content in detail"),
-    image_path_local: z.string().min(1),
+    image_path_local: z.string().optional().default(''),
+    url: z.string().url().optional().or(z.literal('')),
     render_strategy: z.enum(["image", "svg", "animation"]).default("image"),
     svg_code: z.string().default(""),
     source_page: z.number().int().positive().optional(),
@@ -49,12 +50,23 @@ export const FigureBlockSchema = z.object({
         extracted_strings: z.array(z.string()).default([])
     }).optional()
 }).superRefine((data, ctx) => {
-    // Enforce descriptive alt text - minimum 20 words for accessibility
-    const wordCount = data.alt.trim().split(/\s+/).length;
+    const hasImage = Boolean(
+        (data.image_path_local && data.image_path_local.trim()) ||
+        (data.url && data.url.trim())
+    );
+    if (!hasImage) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: 'Figure block requires image_path_local (relative path or https URL) or url field.',
+            path: ['image_path_local'],
+        });
+    }
+
+    const wordCount = data.alt.trim().split(/\s+/).filter(Boolean).length;
     if (wordCount < 20) {
         ctx.addIssue({
             code: z.ZodIssueCode.custom,
-            message: `Alt text must be at least 20 words for accessibility. Current count: ${wordCount}. Example: "A detailed diagram of a plant cell showing the nucleus, chloroplasts, cell wall, and large central vacuole with labeled parts."`,
+            message: `Alt text must be at least 20 words for accessibility. Current count: ${wordCount}.`,
             path: ["alt"]
         });
     }

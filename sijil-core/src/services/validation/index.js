@@ -3,20 +3,21 @@ import { DocumentIngestSchema } from '../../schemas/documentIngest.schema.js';
 import { TopicIngestSchema } from '../../schemas/topicIngest.schema.js';
 import { checkTier1 } from './tier1.js';
 import { applyTier2AutoFixes } from './tier2.js';
-import { checkTier3Flags } from './tier3.js';
+import { checkAllTier3Flags } from './tier3.js';
+import { checkStructuralQuality } from './structuralQuality.js';
 
 /**
  * Orchestrates the validation pipeline across incoming AI parsing runs.
  * @param {string} rawJsonString - Raw, unparsed JSON string content received from ingestion endpoints.
  * @param {Object} options - Validation options
  * @param {boolean} options.lenient - If true, skip strict Zod validation (for bulk imports)
- * @returns {Promise<{ valid: boolean, tier?: number, errors?: any[], data?: any, autoFixLog?: any[], flags?: any[], note?: string }>}
+ * @param {boolean} options.skipStructural - If true, skip structural quality gate (emergency override)
+ * @returns {Promise<{ valid: boolean, tier?: number, errors?: any[], data?: any, autoFixLog?: any[], flags?: any[], structuralWarnings?: any[], note?: string }>}
  */
 export async function validateQwenOutput(rawJsonStringOrObject, options = {}) {
-    const { lenient = false } = options;
+    const { lenient = false, skipStructural = false } = options;
     let rawParsed;
 
-    // 1. Structural Parse Guard (accept either string or pre-parsed object)
     if (typeof rawJsonStringOrObject === 'string') {
         try {
             rawParsed = JSON.parse(rawJsonStringOrObject);
@@ -31,7 +32,6 @@ export async function validateQwenOutput(rawJsonStringOrObject, options = {}) {
         rawParsed = rawJsonStringOrObject;
     }
 
-    // 2. Tier 1 Execution Gate
     const tier1Result = checkTier1(rawParsed);
     if (!tier1Result.passed) {
         return {
@@ -41,10 +41,25 @@ export async function validateQwenOutput(rawJsonStringOrObject, options = {}) {
         };
     }
 
-    // 3. Tier 2 Repair Executions
     const { repaired, autoFixLog } = applyTier2AutoFixes(rawParsed);
 
-    // 4. Skip strict Zod validation in lenient mode (bulk imports)
+    // Structural quality gate — ALWAYS runs (batch + single ingest)
+    let structuralWarnings = [];
+    if (!skipStructural) {
+        const structural = checkStructuralQuality(repaired);
+        structuralWarnings = structural.warnings || [];
+
+        if (!structural.passed) {
+            return {
+                valid: false,
+                tier: 'structural',
+                errors: structural.errors,
+                structuralWarnings,
+                structuralStats: structural.stats,
+            };
+        }
+    }
+
     if (!lenient) {
         try {
             await DocumentIngestSchema.parseAsync(repaired);
@@ -65,16 +80,14 @@ export async function validateQwenOutput(rawJsonStringOrObject, options = {}) {
         }
     }
 
-    // 5. Tier 3 Data Quality Flag Evaluation
-    const topicLevel = repaired.topics?.[0];
-    const documentLevel = repaired.ingest_metadata;
-    const flags = checkTier3Flags(topicLevel, topicLevel, documentLevel);
+    const flags = checkAllTier3Flags(repaired);
 
     return {
         valid: true,
         data: repaired,
         autoFixLog,
-        flags
+        flags,
+        structuralWarnings,
     };
 }
 

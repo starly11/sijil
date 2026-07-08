@@ -9,33 +9,43 @@ interface ImportProgressProps {
 }
 
 export const ImportProgress: React.FC<ImportProgressProps> = ({ status }) => {
-  // Calculate total files processed from the arrays
-  const totalProcessed = (status.successful_files?.length || 0) + (status.failed_files?.length || 0);
-  
-  // Robust handling for progress being a flat number or a multi-stage object
-  let progressValue = 0;
-  if (typeof status.progress === 'number') {
-    progressValue = status.progress;
-  } else if (status.progress && typeof status.progress === 'object') {
-    // If it's a specific stage object, check for a global 'importing' stage or average them out
-    const stages = status.progress as Record<string, { percentage?: number }>;
-    if (stages.importing && typeof stages.importing.percentage === 'number') {
-      progressValue = stages.importing.percentage;
-    } else {
-      const stageValues = Object.values(stages).map((stage) => stage?.percentage || 0);
-      progressValue = stageValues.length > 0 
-        ? Math.round(stageValues.reduce((a, b) => a + b, 0) / stageValues.length)
-        : 0;
-    }
-  }
-
-  // Fallbacks for standard metric counts
   const counts = status.counts || {
     total_documents: 0,
     imported_documents: 0,
     failed_documents: 0,
     total_topics: 0
   };
+
+  const importedCount =
+    status.successful_files?.length ||
+    counts.imported_documents ||
+    0;
+
+  const failedCount =
+    status.failed_files?.length ||
+    counts.failed_documents ||
+    0;
+
+  const totalProcessed = importedCount + failedCount;
+
+  let progressValue = 0;
+  if (typeof status.progress === 'number') {
+    progressValue = status.progress;
+  } else if (status.progress && typeof status.progress === 'object') {
+    const stages = status.progress as Record<string, { percentage?: number }>;
+    if (stages.importing && typeof stages.importing.percentage === 'number') {
+      progressValue = stages.importing.percentage;
+    } else {
+      const stageValues = Object.values(stages).map((stage) => stage?.percentage || 0);
+      progressValue = stageValues.length > 0
+        ? Math.round(stageValues.reduce((a, b) => a + b, 0) / stageValues.length)
+        : 0;
+    }
+  }
+
+  if (status.status === 'COMPLETED' || status.status === 'PARTIAL_SUCCESS') {
+    progressValue = 100;
+  }
 
   return (
     <Card>
@@ -67,17 +77,47 @@ export const ImportProgress: React.FC<ImportProgressProps> = ({ status }) => {
           </div>
           <div className="text-center">
             <div className="text-2xl font-bold text-green-600">
-              {status.successful_files?.length || 0}
+              {importedCount}
             </div>
             <div className="text-sm text-gray-500">Imported</div>
           </div>
           <div className="text-center">
             <div className="text-2xl font-bold text-red-600">
-              {status.failed_files?.length || 0}
+              {failedCount}
             </div>
             <div className="text-sm text-gray-500">Failed</div>
           </div>
         </div>
+
+        {/* Successfully imported files */}
+        {status.successful_files && status.successful_files.length > 0 && (
+          <div>
+            <h3 className="text-sm font-semibold mb-2">Imported Files</h3>
+            <div className="space-y-2">
+              {status.successful_files.map((file, index) => (
+                <div
+                  key={index}
+                  className="p-3 bg-green-50 dark:bg-green-900/20 rounded-lg text-sm flex items-center justify-between gap-4"
+                >
+                  <div>
+                    <div className="font-medium">{file.file_path}</div>
+                    {file.document_id && (
+                      <div className="text-gray-500 text-xs mt-1">Document: {file.document_id}</div>
+                    )}
+                  </div>
+                  {file.document_id && (
+                    <a
+                      href={`/documents/${file.document_id}`}
+                      className="text-blue-600 hover:underline whitespace-nowrap text-xs"
+                    >
+                      View →
+                    </a>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Errors Section */}
         {status.failed_files && status.failed_files.length > 0 && (

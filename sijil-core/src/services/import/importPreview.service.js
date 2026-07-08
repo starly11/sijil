@@ -71,11 +71,18 @@ export async function previewImport({
                 files.push(filePath);
 
                 // Use the same validation as actual ingestion!
-                const validationResult = await validateQwenOutput(doc);
+                const validationResult = await validateQwenOutput(doc, { lenient: true });
                 if (!validationResult.valid) {
                     allErrors.push(...(validationResult.errors || []).map(e => ({
                         file: filePath,
-                        message: e.message || JSON.stringify(e)
+                        message: e.message || JSON.stringify(e),
+                        code: e.code,
+                    })));
+                }
+                if (validationResult.structuralWarnings?.length) {
+                    allWarnings.push(...validationResult.structuralWarnings.map(w => ({
+                        file: filePath,
+                        message: w.message || JSON.stringify(w),
                     })));
                 }
                 if (validationResult.flags && validationResult.flags.length > 0) {
@@ -126,11 +133,19 @@ export async function previewImport({
             repo_owner: repo.owner,
             repo_name: repo.name,
             commit_sha: scanResult.commit_sha,
+            path_filter: path || repo.path || null,
+            document_files: scanResult.documents,
             status: 'PENDING',
             total_documents: documents.length,
             total_topics,
             total_assets,
             total_assessments,
+            progress: {
+                scanning: { status: 'completed', percentage: 100 },
+                validating: { status: 'completed', percentage: 100 },
+                importing: { status: 'pending', percentage: 0, documents: 0, topics: 0, assets: 0, assessments: 0 },
+                indexing: { status: 'pending', percentage: 0 },
+            },
             warnings: allWarnings.map(w => ({
                 type: 'schema_warning',
                 message: w.message,

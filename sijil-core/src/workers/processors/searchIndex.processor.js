@@ -20,9 +20,25 @@ export default async function processSearchIndex(job) {
     try {
         // Step 1: Fetch all topics belonging to this document_id
         await job.updateProgress(25);
-        
-        const topics = await Topic.find({ document_id }).select(
-            '_id title keywords key_terms_preview subject grade_numeric difficulty topic_type'
+
+        const document = await Document.findOne({
+            $or: [
+                { _id: document_id },
+                { 'document_metadata.document_id': document_id }
+            ]
+        }).lean();
+
+        const docIdCandidates = [...new Set([
+            document_id,
+            document?._id,
+            document?.document_metadata?.document_id
+        ].filter(Boolean))];
+
+        const topics = await Topic.find({
+            document_id: { $in: docIdCandidates },
+            is_archived: { $ne: true }
+        }).select(
+            '_id title keywords key_terms_preview subject grade_numeric difficulty topic_type document_id'
         ).lean();
         
         logger.info({ 
@@ -33,6 +49,7 @@ export default async function processSearchIndex(job) {
         if (topics.length === 0) {
             return {
                 document_id,
+                doc_id_candidates: docIdCandidates,
                 topics_checked: 0,
                 search_verified: false,
                 note: 'No topics found for this document_id'
@@ -40,11 +57,7 @@ export default async function processSearchIndex(job) {
         }
 
         // Step 2: Verify document exists and is not archived
-        const document = await Document.findOne({ 
-            'document_metadata.document_id': document_id 
-        }).lean();
-        
-        const isDocumentActive = document && 
+        const isDocumentActive = document &&
             (document.document_metadata?.is_latest !== false || 
              !document.document_metadata?.is_archived);
         
@@ -77,7 +90,7 @@ export default async function processSearchIndex(job) {
                 },
                 {
                     $match: {
-                        document_id: document_id
+                        document_id: { $in: docIdCandidates }
                     }
                 },
                 {

@@ -14,7 +14,6 @@ async function mergeTopicFragments(topicMeta) {
     TopicAssessment.findOne({ topic_id: topicId }).lean()
   ]);
 
-  // Enrich assets with computed URLs at read-time
   const enrichedFigures = enrichFiguresWithUrls(assets?.figures || assets?.assets || []);
   const enrichedTables = enrichTables(assets?.tables || []);
 
@@ -38,6 +37,7 @@ async function mergeTopicFragments(topicMeta) {
       document_id: topicMeta.document_id,
       chapter_id: topicMeta.chapter_id,
       display_order: topicMeta.display_order,
+      section_number: topicMeta.section_number,
       topic_type: topicMeta.topic_type,
       difficulty: topicMeta.difficulty,
       subject: topicMeta.subject,
@@ -46,15 +46,34 @@ async function mergeTopicFragments(topicMeta) {
       locale: topicMeta.locale,
       publishing_status: topicMeta.publishing_status,
       keywords: topicMeta.keywords || [],
-      key_terms_preview: topicMeta.key_terms_preview || []
+      key_terms_preview: topicMeta.key_terms_preview || [],
+      seo: topicMeta.seo || {},
+      geo: topicMeta.geo || {},
+      design_meta: topicMeta.design_meta || {},
+      word_count: topicMeta.word_count,
+      formula_count: topicMeta.formula_count,
+      figure_count: topicMeta.figure_count,
+      mcq_count: topicMeta.mcq_count,
+      has_interactive: topicMeta.has_interactive,
     },
     content_blocks: content?.content_blocks || [],
+    raw_text: content?.raw_text || '',
+    clean_html: content?.clean_html || '',
+    formulas: content?.formulas || [],
+    key_terms: content?.key_terms || [],
+    faq: content?.faq || [],
+    ai_answer_hub: content?.ai_answer_hub || [],
+    callouts: content?.callouts || [],
+    examples: content?.examples || [],
+    downloadable_outputs: content?.downloadable_outputs || {},
     figures: enrichedFigures,
     tables: enrichedTables,
     assessments: {
-      mcqs: assessments?.mcqs || [],
+      mcqs: assessments?.book_mcqs || [],
       flashcards: assessments?.flashcards || [],
-      short_questions: assessments?.short_questions || []
+      short_questions: assessments?.book_short_questions || assessments?.short_questions || [],
+      book_problems: assessments?.book_problems || [],
+      activities: assessments?.activities || [],
     },
     related_topics: relatedTopics
   };
@@ -116,7 +135,6 @@ export async function fetchTopicAssessments(topicId) {
     };
   }
   
-  // Map schema fields to expected response shape
   return {
     mcqs: assessments.book_mcqs || [],
     short_questions: assessments.book_short_questions || [],
@@ -133,23 +151,20 @@ export async function fetchTopicAssessments(topicId) {
  * @returns {Promise<Object>} Topic page data with navigation and counts
  */
 export async function fetchTopicPage(topicId) {
-  // Fetch topic metadata
   const topic = await Topic.findById(topicId).lean();
   if (!topic) return null;
   
-  // Fetch sibling topics in same document for navigation
   const [chapterTopics, contentCheck, formulasCount, assessmentsCount, assetsCount] = await Promise.all([
-    Topic.find({ document_id: topic.document_id })
+    Topic.find({ document_id: topic.document_id, chapter_id: topic.chapter_id })
       .select('_id title slug display_order url_path')
       .sort({ display_order: 1 })
       .lean(),
     TopicContent.findOne({ topic_id: topicId }).select('topic_id').lean(),
-    import('../../models/formulaIndex.model.js').then(m => m.default.countDocuments({ document_id: topic.document_id })).catch(() => 0),
+    import('../../models/formulaIndex.model.js').then(m => m.default.countDocuments({ topic_id: topicId })).catch(() => 0),
     TopicAssessment.countDocuments({ topic_id: topicId }),
     TopicAsset.countDocuments({ topic_id: topicId })
   ]);
   
-  // Find current topic position and determine prev/next
   const currentIndex = chapterTopics.findIndex(t => t._id === topicId);
   const prev = currentIndex > 0 ? chapterTopics[currentIndex - 1] : null;
   const next = currentIndex < chapterTopics.length - 1 ? chapterTopics[currentIndex + 1] : null;
@@ -166,15 +181,17 @@ export async function fetchTopicPage(topicId) {
       display_order: topic.display_order,
       topic_type: topic.topic_type,
       subject: topic.subject,
-      grade_numeric: topic.grade_numeric
+      grade_numeric: topic.grade_numeric,
+      design_meta: topic.design_meta || {},
+      seo: topic.seo || {},
     },
     navigation: {
-      prev: prev ? { _id: prev._id, title: prev.title, slug: prev.slug, url_path: prev.url_path } : null,
-      next: next ? { _id: next._id, title: next.title, slug: next.slug, url_path: next.url_path } : null,
+      prev: prev ? { _id: prev._id, title: prev.title, slug: prev.slug_global || prev.slug, url_path: prev.url_path } : null,
+      next: next ? { _id: next._id, title: next.title, slug: next.slug_global || next.slug, url_path: next.url_path } : null,
       chapter_topics: chapterTopics.map(t => ({
         _id: t._id,
         title: t.title,
-        slug: t.slug,
+        slug: t.slug_global || t.slug,
         display_order: t.display_order,
         url_path: t.url_path
       }))

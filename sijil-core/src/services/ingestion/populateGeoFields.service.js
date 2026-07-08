@@ -158,37 +158,39 @@ function buildTrustworthinessSignals(docMeta) {
  */
 function extractSourceCitations(contentBlocks, existingCitations = []) {
   const citations = [...existingCitations];
-  
+
   if (!Array.isArray(contentBlocks)) return citations;
-  
-  // Find suitable blocks for citation
+
+  const getBlockText = (block) => {
+    if (!block) return '';
+    return block.text || block.content || block.definition_text || '';
+  };
+
   const candidateBlocks = contentBlocks.filter(block => {
-    if (!block || !block.content) return false;
-    if (!["callout", "key_point", "fact"].includes(block.type)) return false;
-    if (block.content.length < 20 || block.content.length > 300) return false;
-    return true;
+    const text = getBlockText(block);
+    if (!text || text.length < 20 || text.length > 300) return false;
+    return ['callout', 'definition', 'paragraph', 'example'].includes(block.type);
   });
-  
-  // Take up to 3 citations
+
   for (let i = 0; i < Math.min(candidateBlocks.length, 3); i++) {
     const block = candidateBlocks[i];
+    const text = getBlockText(block);
     const citation = {
-      verbatim_quote: block.content.substring(0, 200),
+      verbatim_quote: text.substring(0, 200),
       page_number: block.source_page || null,
-      context: block.display_label || ""
+      context: block.title || block.variant || block.type || ''
     };
-    
-    // Avoid duplicates
-    const isDuplicate = citations.some(c => 
-      c.verbatim_quote === citation.verbatim_quote && 
+
+    const isDuplicate = citations.some(c =>
+      c.verbatim_quote === citation.verbatim_quote &&
       c.page_number === citation.page_number
     );
-    
+
     if (!isDuplicate) {
       citations.push(citation);
     }
   }
-  
+
   return citations;
 }
 

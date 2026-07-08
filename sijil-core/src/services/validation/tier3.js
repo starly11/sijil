@@ -8,7 +8,6 @@
 export function checkTier3Flags(rawTopic, validatedTopic, documentLevel) {
     const flags = [];
 
-    // 1. Process document level telemetry flags if provided
     if (documentLevel && typeof documentLevel === 'object') {
         const score = documentLevel.confidence_score;
         if (typeof score === 'number' && score < 0.80) {
@@ -30,24 +29,35 @@ export function checkTier3Flags(rawTopic, validatedTopic, documentLevel) {
     if (!validatedTopic || typeof validatedTopic !== 'object') return flags;
     const tId = validatedTopic._id || "unknown_topic";
 
-    // 2. Scan image alt text description completeness
-    if (Array.isArray(validatedTopic.figures)) {
-        validatedTopic.figures.forEach(fig => {
-            if (!fig || typeof fig !== 'object') return;
-            const altText = fig.alt || "";
-            const wordCount = altText.trim().split(/\s+/).filter(Boolean).length;
-            if (wordCount < 20) {
-                flags.push({
-                    type: "short_alt_text",
-                    topic_id: tId,
-                    ref_id: fig._id,
-                    message: `Figure ${fig.figure_number || ''} alternative description text is terse (${wordCount} words). Accessibility pipelines require detailed descriptions.`
-                });
-            }
-        });
-    }
+    // Scan figures in top-level array AND content_blocks
+    const figureSources = [
+        ...(Array.isArray(validatedTopic.figures) ? validatedTopic.figures : []),
+        ...(Array.isArray(validatedTopic.content_blocks)
+            ? validatedTopic.content_blocks.filter(b => b?.type === 'figure')
+            : []),
+    ];
+    figureSources.forEach(fig => {
+        if (!fig || typeof fig !== 'object') return;
+        const altText = fig.alt || "";
+        const wordCount = altText.trim().split(/\s+/).filter(Boolean).length;
+        if (wordCount < 20) {
+            flags.push({
+                type: "short_alt_text",
+                topic_id: tId,
+                ref_id: fig._id || fig.figure_id,
+                message: `Figure ${fig.figure_number || ''} alternative description text is terse (${wordCount} words). Accessibility pipelines require detailed descriptions.`
+            });
+        }
+        if (!fig.image_path_local && !fig.url) {
+            flags.push({
+                type: "missing_figure_url",
+                topic_id: tId,
+                ref_id: fig._id || fig.figure_id,
+                message: `Figure ${fig.figure_number || ''} has no image_path_local or url.`
+            });
+        }
+    });
 
-    // 3. Scan formula display property completeness
     if (Array.isArray(validatedTopic.formulas)) {
         validatedTopic.formulas.forEach(form => {
             if (!form || typeof form !== 'object') return;
@@ -62,7 +72,6 @@ export function checkTier3Flags(rawTopic, validatedTopic, documentLevel) {
         });
     }
 
-    // 4. Trace narrative prose length boundaries
     const textStr = validatedTopic.raw_text || "";
     const proseWords = textStr.trim().split(/\s+/).filter(Boolean).length;
     if (proseWords === 0) {
@@ -79,7 +88,6 @@ export function checkTier3Flags(rawTopic, validatedTopic, documentLevel) {
         });
     }
 
-    // 5. Evaluate un-normalized raw inputs for structural shape defects
     if (rawTopic && typeof rawTopic === 'object') {
         if (Array.isArray(rawTopic.book_mcqs)) {
             rawTopic.book_mcqs.forEach((rawMcq, idx) => {
@@ -115,4 +123,21 @@ export function checkTier3Flags(rawTopic, validatedTopic, documentLevel) {
     }
 
     return flags;
+}
+
+/**
+ * Run tier-3 flags across ALL topics in a document payload.
+ * @param {Object} payload
+ * @returns {Array}
+ */
+export function checkAllTier3Flags(payload) {
+    const topics = payload?.topics || payload?.container?.topics || [];
+    const documentLevel = payload?.ingest_metadata;
+    const allFlags = [];
+
+    for (const topic of topics) {
+        allFlags.push(...checkTier3Flags(topic, topic, documentLevel));
+    }
+
+    return allFlags;
 }

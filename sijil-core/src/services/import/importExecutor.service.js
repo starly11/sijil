@@ -52,6 +52,17 @@ export async function executeImport({
             input_data: { batch_id, retry_only }
         });
 
+        // Remove stale job if it exists (prevents duplicate concurrent batch runs)
+        const jobId = `batch_${batch_id}`;
+        const existingJob = await ingestionQueue.getJob(jobId);
+        if (existingJob) {
+            const state = await existingJob.getState();
+            if (['active', 'waiting', 'delayed', 'paused'].includes(state)) {
+                throw new Error('Import already in progress');
+            }
+            await existingJob.remove();
+        }
+
         // Add job to ingestion queue with proper configuration
         const job = await ingestionQueue.add('batch_import', {
             batch_id,
@@ -60,11 +71,11 @@ export async function executeImport({
             retry_only,
             started_at: new Date().toISOString()
         }, {
-            jobId: `batch_${batch_id}`,
-            attempts: 1,
+            jobId,
+            attempts: 2,
             removeOnComplete: false,
             removeOnFail: false,
-            timeout: 3600000 // 1 hour timeout for large batches
+            timeout: 7200000
         });
 
         logger.info(

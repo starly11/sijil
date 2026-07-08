@@ -1,70 +1,37 @@
-import axios from 'axios';
 import * as logger from '../../utils/logger.js';
 import { ingestDocument } from '../../services/ingestion/ingestDocument.service.js';
+import { fetchRepositoryTree, fetchGitHubJsonFile } from '../../services/import/githubFetch.service.js';
 import ImportBatch from '../../models/importBatch.model.js';
+import { slugResolverQueue, searchIndexQueue } from '../../queues/index.js';
+import { recomputeStats } from '../../services/stats/platformStats.service.js';
 import { getCurrentProfiler, setCurrentProfiler, createProfiler } from '../../utils/performanceProfiler.js';
 
+const BATCH_SAVE_INTERVAL = 5;
 
-const RETRY_CONFIG = {
-    maxRetries: 5,
-    initialDelayMs: 1000,
-    maxDelayMs: 30000,
-    timeoutMs: 30000
-};
-
-function classifyError(error) {
-    const status = error.response?.status;
-    const code = error.code;
-    
-    if (code === 'ETIMEDOUT' || code === 'ECONNRESET' || code === 'ENOTFOUND') {
-        return { isRetryable: true, category: 'NETWORK_ERROR' };
-    }
-    if (status >= 500 && status < 600) {
-        return { isRetryable: true, category: 'SERVER_ERROR' };
-    }
-    if (status === 429) {
-        return { isRetryable: true, category: 'RATE_LIMITED' };
-    }
-    if (status >= 400 && status < 500) {
-        return { isRetryable: false, category: 'CLIENT_ERROR' };
-    }
-    return { isRetryable: true, category: 'UNKNOWN_ERROR' };
+async function saveBatchProgress(batch) {
+    batch.markModified('successful_files');
+    batch.markModified('failed_files');
+    batch.markModified('progress');
+    await batch.save();
 }
-
-function sleep(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-function calculateBackoffDelay(attempt) {
-    const exponentialDelay = Math.min(
-        RETRY_CONFIG.initialDelayMs * Math.pow(2, attempt),
-        RETRY_CONFIG.maxDelayMs
-    );
-    const jitter = exponentialDelay * 0.25 * (Math.random() * 2 - 1);
-    return Math.round(exponentialDelay + jitter);
-}
-
 
 /**
  * Handles incoming JSON payload transformation logic.
  * Supports both single document ingestion and batch import jobs.
- * @param {import('bullmq').Job} job - Contextual properties reflecting target task configurations.
+ * @param {import('bullmq').Job} job
  */
 export default async function processIngestion(job) {
-    // Check both job.name (from add() second argument) AND job.data.job_type
     const jobType = job.name === 'batch_import' ? 'batch_import' : (job.data.job_type || 'single');
-    
+
     if (jobType === 'batch_import') {
         return await processBatchImport(job);
     }
-    
-    // Original single document ingestion flow
+
     logger.info({ queue: 'ingestion', jobId: job.id, event: 'processor_start' }, `Starting ingestion task execution for ID: ${job.data.ingest_id}`);
 
     try {
         await job.updateProgress(10);
 
-        // Call the actual ingestDocument service
         const result = await ingestDocument({
             payload: job.data.payload,
             source: job.data.source || 'queue_ingestion'
@@ -88,302 +55,159 @@ export default async function processIngestion(job) {
     }
 }
 
-/**
- * Fetch file content from GitHub Raw URL
- * @param {string} token - GitHub PAT
- * @param {string} owner - Repository owner
- * @param {string} name - Repository name
- * @param {string} path - File path
- * @param {string} branch - Branch name (default: main)
- * @returns {Promise<Object>} Parsed JSON content
- */
-async function fetchGitHubFile(token, owner, name, path, branch = 'main', context = {}) {
-    const url = `https://raw.githubusercontent.com/${owner}/${name}/${branch}/${path}`;
-    let lastError = null;
-    const profiler = getCurrentProfiler();
-    
-    for (let attempt = 0; attempt <= RETRY_CONFIG.maxRetries; attempt++) {
-        try {
-            logger.debug({ ...context, url, attempt: attempt + 1 }, 'Fetching file from GitHub');
-            
-            const startTime = process.hrtime.bigint();
-            const response = await axios.get(url, {
-                headers: {
-                    'Authorization': `token ${token}`,
-                    'Accept': 'application/vnd.github.v3.raw',
-                    'User-Agent': 'sijil-import-service/1.0'
-                },
-                timeout: RETRY_CONFIG.timeoutMs,
-                validateStatus: (status) => status < 500
-            });
-            const endTime = process.hrtime.bigint();
-            const durationMs = Number(endTime - startTime) / 1000000;
-            
-            if (profiler) {
-                profiler.startTimer('GitHub File Download');
-                profiler.stopTimer('GitHub File Download');
-                // Override with actual duration
-                profiler.metrics.timers['GitHub File Download'].durationMs = durationMs;
-                profiler.metrics.timers['GitHub File Download'].durationS = durationMs / 1000;
-            }
-            
-            if (response.status >= 400 && response.status < 500) {
-                throw new Error(`GitHub API returned ${response.status}: ${response.statusText}`);
-            }
-            
-            return response.data;
-            
-        } catch (error) {
-            lastError = error;
-            const { isRetryable, category } = classifyError(error);
-            
-            logger.warn({
-                ...context,
-                attempt: attempt + 1,
-                error: error.message,
-                category,
-                isRetryable
-            }, `GitHub fetch failed (attempt ${attempt + 1}/${RETRY_CONFIG.maxRetries + 1})`);
-            
-            if (!isRetryable || attempt >= RETRY_CONFIG.maxRetries) {
-                logger.error({ ...context, err: error, category }, 'GitHub fetch failed permanently');
-                throw error;
-            }
-            
-            const delay = calculateBackoffDelay(attempt);
-            logger.info({ ...context, delayMs: delay }, 'Waiting before retry');
-            await sleep(delay);
-        }
+function resolveBranch(batch) {
+    const branchMatch = batch.repo_url.match(/\/tree\/([^/]+)/);
+    return branchMatch ? branchMatch[1] : 'main';
+}
+
+function filterJsonFiles(tree) {
+    return tree
+        .filter(f => f.type === 'blob' && f.path.endsWith('.json'))
+        .map(f => f.path)
+        .filter(path => !path.includes('package.json') && !path.includes('tsconfig.json'));
+}
+
+async function resolveFileList(batch, github_token, branch, context) {
+    if (batch.document_files && batch.document_files.length > 0) {
+        logger.info({ ...context, total_files: batch.document_files.length, source: 'cached' }, 'Using cached file list from preview');
+        return { files: batch.document_files, tree: null };
     }
-    
-    throw lastError || new Error('Unknown error during GitHub fetch');
+
+    const tree = await fetchRepositoryTree(github_token, batch.repo_owner, batch.repo_name, branch, context);
+    const files = filterJsonFiles(tree);
+    logger.info({ ...context, total_files: files.length, source: 'github_tree' }, 'Resolved file list from GitHub tree');
+    return { files, tree };
+}
+
+async function enqueueCascadeJobs(documentIds) {
+    const jobs = documentIds.map(documentId =>
+        Promise.all([
+            slugResolverQueue.add(`resolve:${documentId}`, {
+                topic_id: documentId,
+                document_id: documentId,
+                context: 'batch_import_cascade'
+            }, {
+                jobId: `slug:resolve:${documentId}`,
+                removeOnComplete: 100,
+                removeOnFail: 50,
+            }),
+            searchIndexQueue.add(`index:${documentId}`, {
+                topic_id: documentId,
+                document_id: documentId,
+                context: 'batch_import_cascade'
+            }, {
+                jobId: `search:index:${documentId}`,
+                removeOnComplete: 100,
+                removeOnFail: 50,
+            }),
+        ])
+    );
+    await Promise.all(jobs);
 }
 
 /**
- * Get repository tree from GitHub API
- * @param {string} token - GitHub PAT
- * @param {string} owner - Repository owner
- * @param {string} name - Repository name
- * @param {string} branch - Branch name (default: main)
- * @returns {Promise<Array>} List of files
- */
-async function getRepoTree(token, owner, name, branch = 'main', context = {}) {
-    const url = `https://api.github.com/repos/${owner}/${name}/git/trees/${branch}?recursive=1`;
-    let lastError = null;
-    const profiler = getCurrentProfiler();
-    
-    for (let attempt = 0; attempt <= RETRY_CONFIG.maxRetries; attempt++) {
-        try {
-            logger.debug({ ...context, url, repo: `${owner}/${name}`, branch, attempt: attempt + 1 }, 'Fetching repository tree');
-            
-            const startTime = process.hrtime.bigint();
-            const response = await axios.get(url, {
-                headers: {
-                    'Authorization': `token ${token}`,
-                    'Accept': 'application/vnd.github.v3+json',
-                    'User-Agent': 'sijil-import-service/1.0'
-                },
-                timeout: RETRY_CONFIG.timeoutMs,
-                validateStatus: (status) => status < 500
-            });
-            const endTime = process.hrtime.bigint();
-            const durationMs = Number(endTime - startTime) / 1000000;
-            
-            if (profiler) {
-                profiler.startTimer('GitHub Repository Scan');
-                profiler.stopTimer('GitHub Repository Scan');
-                // Override with actual duration
-                profiler.metrics.timers['GitHub Repository Scan'].durationMs = durationMs;
-                profiler.metrics.timers['GitHub Repository Scan'].durationS = durationMs / 1000;
-            }
-            
-            if (response.status >= 400 && response.status < 500) {
-                throw new Error(`GitHub API returned ${response.status}: ${response.statusText}`);
-            }
-            
-            return response.data.tree || [];
-            
-        } catch (error) {
-            lastError = error;
-            const { isRetryable, category } = classifyError(error);
-            
-            logger.warn({
-                ...context,
-                attempt: attempt + 1,
-                error: error.message,
-                category,
-                isRetryable
-            }, `Repo tree fetch failed (attempt ${attempt + 1}/${RETRY_CONFIG.maxRetries + 1})`);
-            
-            if (!isRetryable || attempt >= RETRY_CONFIG.maxRetries) {
-                logger.error({ ...context, err: error, category }, 'Repo tree fetch failed permanently');
-                throw error;
-            }
-            
-            const delay = calculateBackoffDelay(attempt);
-            logger.info({ ...context, delayMs: delay }, 'Waiting before retry');
-            await sleep(delay);
-        }
-    }
-    
-    throw lastError || new Error('Unknown error during repo tree fetch');
-}
-
-/**
- * Process batch import job
- * Actually processes each file by calling ingestDocument()
+ * Process batch import job — one file at a time with resumable progress.
  * @param {import('bullmq').Job} job
  */
 async function processBatchImport(job) {
-    const { batch_id, github_token, admin_id, retry_only } = job.data;
-    
+    const { batch_id, github_token, retry_only } = job.data;
+
     logger.info({ queue: 'ingestion', jobId: job.id, batch_id, retry_only }, 'Starting batch import processing');
-    
-    // Create profiler for this batch import
+
     const profiler = createProfiler(`batch_${batch_id}`);
     setCurrentProfiler(profiler);
     profiler.startTimer('Total');
-    
+
     await job.updateProgress(5);
-    
+
     let batch;
     try {
-        const profiler = getCurrentProfiler();
-        const findStartTime = process.hrtime.bigint();
         batch = await ImportBatch.findOne({ batch_id });
-        const findEndTime = process.hrtime.bigint();
-        const findDurationMs = Number(findEndTime - findStartTime) / 1000000;
-        if (profiler) {
-            profiler.trackMongoOperation(ImportBatch.collection.name, 'findOne', findDurationMs, 0);
-        }
-        
+
         if (!batch) {
             throw new Error(`ImportBatch not found: ${batch_id}`);
         }
-        
-        // Handle different batch states appropriately
+
         if (batch.status === 'CANCELLED') {
-            logger.warn({ batch_id, status: batch.status }, 'Batch was cancelled before starting');
             profiler.stopTimer('Total');
             profiler.printSummary(`Batch ${batch_id}`);
             return { status: 'cancelled', reason: 'Batch was cancelled' };
         }
-        
+
         if (batch.status === 'COMPLETED' && !retry_only) {
-            logger.warn({ batch_id, status: batch.status }, 'Batch already completed');
             profiler.stopTimer('Total');
             profiler.printSummary(`Batch ${batch_id}`);
             return { status: 'skipped', reason: `Batch already ${batch.status}` };
         }
-        
-        // Update status based on current state
+
         if (retry_only && batch.failed_files.length > 0) {
             batch.status = 'RETRYING';
             batch.progress.importing.status = 'in_progress';
-            const saveStartTime = process.hrtime.bigint();
             await batch.save();
-            const saveEndTime = process.hrtime.bigint();
-            const saveDurationMs = Number(saveEndTime - saveStartTime) / 1000000;
-            if (profiler) {
-                profiler.trackMongoOperation(ImportBatch.collection.name, 'save', saveDurationMs, 1);
-            }
         } else if (batch.status === 'QUEUED') {
-            // First time processing - update from QUEUED to IMPORTING
             batch.status = 'IMPORTING';
             batch.progress.importing.status = 'in_progress';
-            const saveStartTime = process.hrtime.bigint();
             await batch.save();
-            const saveEndTime = process.hrtime.bigint();
-            const saveDurationMs = Number(saveEndTime - saveStartTime) / 1000000;
-            if (profiler) {
-                profiler.trackMongoOperation(ImportBatch.collection.name, 'save', saveDurationMs, 1);
-            }
         }
-        // If status is already IMPORTING or RETRYING, continue without changing
-        
-        // Determine branch from repo_url or default to main
-        const branchMatch = batch.repo_url.match(/\/tree\/([^/]+)/);
-        const branch = branchMatch ? branchMatch[1] : 'main';
-        
+
+        const branch = resolveBranch(batch);
         logger.info({ batch_id, branch }, 'Using branch for import');
-        
-        // Get repository tree
+
         await job.updateProgress(10);
-        const tree = await getRepoTree(github_token, batch.repo_owner, batch.repo_name, branch, { batch_id });
-        
-        // Get all JSON files
-        const allFiles = tree
-            .filter(f => f.type === 'blob' && f.path.endsWith('.json'))
-            .map(f => f.path)
-            .filter(path => !path.includes('package.json') && !path.includes('tsconfig.json'));
-        
-        logger.info({ batch_id, total_files: allFiles.length }, 'Found JSON files to process');
-        
-        // Determine which files to process
+        const { files: allFiles, tree } = await resolveFileList(
+            batch,
+            github_token,
+            branch,
+            { batch_id }
+        );
+
         let filesToProcess;
-        
         if (retry_only && batch.failed_files.length > 0) {
-            // Only process previously failed files
             const failedPaths = new Set(batch.failed_files.map(f => f.file_path));
             filesToProcess = allFiles.filter(path => failedPaths.has(path));
             logger.info({ batch_id, count: filesToProcess.length }, 'Retrying failed files only');
         } else {
-            // Process all files except already successful ones (resumable)
             const successfulPaths = new Set(batch.successful_files.map(f => f.file_path));
             filesToProcess = allFiles.filter(path => !successfulPaths.has(path));
         }
-        
+
         if (filesToProcess.length === 0) {
-            logger.info({ batch_id }, 'No files to process');
             batch.status = 'COMPLETED';
             batch.completed_at = new Date();
-            const saveStartTime = process.hrtime.bigint();
             await batch.save();
-            const saveEndTime = process.hrtime.bigint();
-            const saveDurationMs = Number(saveEndTime - saveStartTime) / 1000000;
-            if (profiler) {
-                profiler.trackMongoOperation(ImportBatch.collection.name, 'save', saveDurationMs, 1);
-            }
             profiler.stopTimer('Total');
             profiler.printSummary(`Batch ${batch_id}`);
             return { status: 'completed', reason: 'No files to process' };
         }
-        
+
         const totalFiles = filesToProcess.length;
         let processedCount = 0;
         let successCount = batch.successful_files.length;
         let failCount = batch.failed_files.length;
-        
+        const importedDocumentIds = new Set();
+
         logger.info(
             { batch_id, total: totalFiles, existing_success: successCount },
             'Starting file processing loop'
         );
-        
-        // Process each file with batching to reduce database writes
-        const BATCH_SAVE_INTERVAL = 5;
-        
+
         for (const filePath of filesToProcess) {
             try {
                 await job.updateProgress(10 + Math.round((processedCount / totalFiles) * 80));
-                
-                logger.info({ batch_id, file: filePath }, '==== STARTING FILE PROCESSING ===');
-                
-                // Fetch document content from GitHub
+
                 logger.info({ batch_id, file: filePath }, 'Fetching and ingesting document');
-                const doc = await fetchGitHubFile(
-                    github_token, 
-                    batch.repo_owner, 
-                    batch.repo_name, 
-                    filePath, 
+                const doc = await fetchGitHubJsonFile(
+                    github_token,
+                    batch.repo_owner,
+                    batch.repo_name,
+                    filePath,
                     branch,
                     { batch_id, file: filePath }
                 );
-                
-                // Get the file SHA to use as source_file_sha256!
-                const fileFromTree = tree.find(f => f.path === filePath);
-                const fileSha = fileFromTree ? fileFromTree.sha : null;
-                
-                // Add ingest_metadata to doc with source info (matching the schema format)
+
+                const fileFromTree = tree?.find(f => f.path === filePath);
+                const fileSha = fileFromTree?.sha || batch.commit_sha;
+
                 const enrichedDoc = {
                     ...doc,
                     ingest_metadata: {
@@ -392,152 +216,85 @@ async function processBatchImport(job) {
                         source_file_sha256: fileSha || `batch_${batch_id}_${filePath}`
                     }
                 };
-                
-                // Add extra safe guards to ensure topics is an array
+
                 if (!enrichedDoc.topics && enrichedDoc.container?.topics) {
                     enrichedDoc.topics = enrichedDoc.container.topics;
                 }
                 if (!Array.isArray(enrichedDoc.topics)) {
                     enrichedDoc.topics = [];
                 }
-                
-                // Call existing ingestDocument service - SINGLE SOURCE OF TRUTH
-                logger.info({ 
-                    batch_id, 
-                    file: filePath, 
-                    has_topics: !!enrichedDoc.topics, 
-                    topic_count: enrichedDoc.topics.length,
-                    schema_version: enrichedDoc.schema_version,
-                    schema_type: enrichedDoc.schema_type
-                }, 'Calling ingestDocument');
-                
+
                 const result = await ingestDocument({
                     payload: enrichedDoc,
                     source: 'batch_import',
-                    batch_id
+                    batchMode: true,
+                    deferCascade: true
                 });
-                logger.info({ 
-                    batch_id, 
-                    file: filePath, 
-                    success: result.success, 
-                    summary: result.summary,
-                    document_id: result.summary?.document_id,
-                    total_topics: result.summary?.total_topics_processed
-                }, 'IngestDocument completed');
 
                 processedCount++;
 
                 if (result.success) {
-                    // Track successful file
                     batch.successful_files.push({
                         file_path: filePath,
                         document_id: result.summary?.document_id,
                         ingested_at: new Date()
                     });
                     successCount++;
-                    
-                    // Remove from failed files if it was there (retry case)
                     batch.failed_files = batch.failed_files.filter(f => f.file_path !== filePath);
-                    
+
+                    if (result.summary?.document_id) {
+                        importedDocumentIds.add(result.summary.document_id);
+                    }
+
+                    batch.imported_topics = (batch.imported_topics || 0) + (result.summary?.total_topics_processed || 0);
+                    batch.progress.importing.topics = batch.imported_topics;
+
                     logger.info(
                         { batch_id, file: filePath, document_id: result.summary?.document_id },
                         'Document imported successfully'
                     );
                 } else {
-                    // Track failed file
-                    const existingFailed = batch.failed_files.find(f => f.file_path === filePath);
-                    if (existingFailed) {
-                        existingFailed.retry_count = (existingFailed.retry_count || 1) + 1;
-                        existingFailed.error = result.error || result.errors?.[0]?.message || 'Unknown ingestion error';
-                        existingFailed.failed_at = new Date();
-                    } else {
-                        batch.failed_files.push({
-                            file_path: filePath,
-                            error: result.error || result.errors?.[0]?.message || 'Unknown ingestion error',
-                            failed_at: new Date(),
-                            retry_count: 1
-                        });
-                    }
+                    trackFailedFile(batch, filePath, result.error || result.errors?.[0]?.message || 'Unknown ingestion error');
                     failCount++;
-                    
                     logger.warn(
                         { batch_id, file: filePath, error: result.error || result.errors?.[0]?.message },
                         'Document ingestion failed'
                     );
                 }
-                
-                // Update progress counters in memory
+
                 batch.imported_documents = successCount;
                 batch.progress.importing.documents = successCount;
                 batch.progress.importing.percentage = Math.round((successCount / allFiles.length) * 100);
-                
-                // Batch database saves to reduce write load
-                if ((processedCount % BATCH_SAVE_INTERVAL === 0) || processedCount === totalFiles) {
-                    const saveStartTime = process.hrtime.bigint();
-                    await batch.save();
-                    const saveEndTime = process.hrtime.bigint();
-                    const saveDurationMs = Number(saveEndTime - saveStartTime) / 1000000;
-                    if (profiler) {
-                        profiler.trackMongoOperation(ImportBatch.collection.name, 'save', saveDurationMs, 1);
-                    }
-                    logger.debug({ batch_id, processedCount, interval: BATCH_SAVE_INTERVAL }, 'Batch progress saved to database');
-                }
-                
-                logger.info({ batch_id, file: filePath }, '==== FILE PROCESSING COMPLETE ===');
-                
-            } catch (error) {
-                // COMPREHENSIVE ERROR LOGGING - Never log empty err:{}
-                const errorDetails = {
-                    message: error?.message || 'Unknown error',
-                    name: error?.name || 'Error',
-                    stack: error?.stack || 'No stack trace',
-                    statusCode: error?.response?.status,
-                    statusText: error?.response?.statusText,
-                    responseData: error?.response?.data ? JSON.stringify(error.response.data).substring(0, 500) : null,
-                    isAxiosError: error?.isAxiosError,
-                    code: error?.code
-                };
 
-                logger.error({ 
-                    batch_id, 
-                    file: filePath, 
-                    ...errorDetails 
-                }, '=== DOCUMENT PROCESSING ERROR ===');
-                
-                processedCount++;
-                
-                // Track failed file with full details
-                const existingFailed = batch.failed_files.find(f => f.file_path === filePath);
-                if (existingFailed) {
-                    existingFailed.retry_count = (existingFailed.retry_count || 1) + 1;
-                    existingFailed.error = errorDetails.message;
-                    existingFailed.full_error = errorDetails;
-                    existingFailed.failed_at = new Date();
-                } else {
-                    batch.failed_files.push({
-                        file_path: filePath,
-                        error: errorDetails.message,
-                        full_error: errorDetails,
-                        failed_at: new Date(),
-                        retry_count: 1
-                    });
-                }
-                failCount++;
-                
-                // Continue processing - don't crash the batch
                 if ((processedCount % BATCH_SAVE_INTERVAL === 0) || processedCount === totalFiles) {
-                    const saveStartTime = process.hrtime.bigint();
-                    await batch.save();
-                    const saveEndTime = process.hrtime.bigint();
-                    const saveDurationMs = Number(saveEndTime - saveStartTime) / 1000000;
-                    if (profiler) {
-                        profiler.trackMongoOperation(ImportBatch.collection.name, 'save', saveDurationMs, 1);
-                    }
+                    await saveBatchProgress(batch);
+                }
+
+            } catch (error) {
+                logger.error({
+                    batch_id,
+                    file: filePath,
+                    message: error?.message,
+                    stack: error?.stack
+                }, 'Document processing error');
+
+                processedCount++;
+                trackFailedFile(batch, filePath, error?.message || 'Unknown error');
+                failCount++;
+
+                if ((processedCount % BATCH_SAVE_INTERVAL === 0) || processedCount === totalFiles) {
+                    await saveBatchProgress(batch);
                 }
             }
         }
-        
-        // Determine final status
+
+        if (importedDocumentIds.size > 0) {
+            const docIds = [...importedDocumentIds];
+            logger.info({ batch_id, count: docIds.length }, 'Enqueuing deferred cascade jobs');
+            await enqueueCascadeJobs(docIds);
+            recomputeStats().catch(err => logger.warn({ err: err.message, batch_id }, 'Batch stats recompute failed'));
+        }
+
         if (failCount === 0) {
             batch.status = 'COMPLETED';
         } else if (successCount > 0) {
@@ -545,12 +302,13 @@ async function processBatchImport(job) {
         } else {
             batch.status = 'FAILED';
         }
-        
+
         batch.completed_at = new Date();
         batch.progress.importing.status = 'completed';
         batch.progress.importing.percentage = 100;
-        
-        // Generate final report
+        batch.progress.indexing = { status: 'completed', percentage: 100 };
+        batch.failed_documents = failCount;
+
         batch.report = {
             duration_ms: batch.completed_at - batch.started_at,
             total_files: allFiles.length,
@@ -562,23 +320,18 @@ async function processBatchImport(job) {
             assessments_imported: batch.imported_assessments,
             commit_sha: batch.commit_sha
         };
-        
-        const finalSaveStartTime = process.hrtime.bigint();
-        await batch.save();
-        const finalSaveEndTime = process.hrtime.bigint();
-        const finalSaveDurationMs = Number(finalSaveEndTime - finalSaveStartTime) / 1000000;
-        if (profiler) {
-            profiler.trackMongoOperation(ImportBatch.collection.name, 'save', finalSaveDurationMs, 1);
-        }
-        
+
+        await saveBatchProgress(batch);
+        await job.updateProgress(100);
+
         logger.info(
             { batch_id, status: batch.status, success: successCount, failed: failCount },
             'Batch import completed'
         );
-        
+
         profiler.stopTimer('Total');
         profiler.printSummary(`Batch ${batch_id}`);
-        
+
         return {
             queue: 'ingestion',
             jobId: job.id,
@@ -591,46 +344,42 @@ async function processBatchImport(job) {
                 failed: failCount
             }
         };
-        
+
     } catch (error) {
         logger.error({ err: error, batch_id, stack: error.stack }, 'Batch import processing failed');
-        
-        // Mark batch as FAILED on worker crash or unexpected error
-        const profiler = getCurrentProfiler();
-        const findStartTime = process.hrtime.bigint();
-        const batch = await ImportBatch.findOne({ batch_id });
-        const findEndTime = process.hrtime.bigint();
-        const findDurationMs = Number(findEndTime - findStartTime) / 1000000;
-        if (profiler) {
-            profiler.trackMongoOperation(ImportBatch.collection.name, 'findOne', findDurationMs, 0);
+
+        const failedBatch = await ImportBatch.findOne({ batch_id });
+        if (failedBatch) {
+            failedBatch.status = 'FAILED';
+            failedBatch.progress.importing.status = 'failed';
+            failedBatch.completed_at = new Date();
+            failedBatch.report = {
+                ...(failedBatch.report || {}),
+                fatal_error: error.message,
+                failed_at: new Date().toISOString()
+            };
+            await failedBatch.save();
         }
-        
-        if (batch) {
-            batch.status = 'FAILED';
-            batch.progress.importing.status = 'failed';
-            batch.completed_at = new Date();
-            
-            // Add error to report if it exists
-            if (!batch.report) {
-                batch.report = {};
-            }
-            batch.report.fatal_error = error.message;
-            batch.report.failed_at = new Date().toISOString();
-            
-            const saveStartTime = process.hrtime.bigint();
-            await batch.save();
-            const saveEndTime = process.hrtime.bigint();
-            const saveDurationMs = Number(saveEndTime - saveStartTime) / 1000000;
-            if (profiler) {
-                profiler.trackMongoOperation(ImportBatch.collection.name, 'save', saveDurationMs, 1);
-            }
-        }
-        
-        if (profiler) {
-            profiler.stopTimer('Total');
-            profiler.printSummary(`Batch ${batch_id}`);
-        }
-        
+
+        profiler.stopTimer('Total');
+        profiler.printSummary(`Batch ${batch_id}`);
+
         throw error;
+    }
+}
+
+function trackFailedFile(batch, filePath, errorMessage) {
+    const existingFailed = batch.failed_files.find(f => f.file_path === filePath);
+    if (existingFailed) {
+        existingFailed.retry_count = (existingFailed.retry_count || 1) + 1;
+        existingFailed.error = errorMessage;
+        existingFailed.failed_at = new Date();
+    } else {
+        batch.failed_files.push({
+            file_path: filePath,
+            error: errorMessage,
+            failed_at: new Date(),
+            retry_count: 1
+        });
     }
 }

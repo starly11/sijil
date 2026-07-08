@@ -37,6 +37,7 @@ export interface Topic {
   document_id: string;
   chapter_id?: string;
   display_order: number;
+  section_number?: string;
   topic_type?: string;
   difficulty?: string;
   subject?: string;
@@ -46,14 +47,57 @@ export interface Topic {
   publishing_status?: string;
   keywords?: string[];
   key_terms_preview?: string[];
+  seo?: {
+    meta_title?: string;
+    meta_description?: string;
+    canonical_url?: string;
+    focus_keyword?: string;
+    keywords?: string[];
+    breadcrumb?: string[];
+    json_ld_types?: string[];
+  };
+  geo?: {
+    llm_summary?: string;
+    authoritative_source?: string;
+    citation_format?: string;
+    entity_name?: string;
+    entity_type?: string;
+    trustworthiness_signals?: string[];
+  };
+  design_meta?: {
+    primary_color_theme?: string;
+    icon_suggestion?: string;
+    layout_template?: string;
+    animation_complexity?: string;
+  };
+  word_count?: number;
+  formula_count?: number;
+  figure_count?: number;
+  mcq_count?: number;
+  has_interactive?: boolean;
 }
 
 export interface TopicFull {
   meta: Topic;
   content_blocks: any[];
+  raw_text?: string;
+  clean_html?: string;
+  formulas?: any[];
+  key_terms?: any[];
+  faq?: any[];
+  ai_answer_hub?: any[];
+  callouts?: any[];
+  examples?: any[];
+  downloadable_outputs?: Record<string, unknown>;
   figures: any[];
   tables: any[];
-  assessments: any;
+  assessments: {
+    mcqs?: any[];
+    flashcards?: any[];
+    short_questions?: any[];
+    book_problems?: any[];
+    activities?: any[];
+  };
   related_topics?: Array<{
     target_entity: string;
     resolved_url: string;

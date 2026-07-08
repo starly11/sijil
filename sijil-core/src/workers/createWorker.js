@@ -1,49 +1,70 @@
-import { Worker, Queue } from 'bullmq';
+import { Worker } from 'bullmq';
 import { createBullMQConnection } from '../queues/connection.js';
+import { QUEUE_NAMES } from '../queues/constants.js';
 import * as logger from '../utils/logger.js';
 
+const WORKER_DEFAULTS = {
+    concurrency: 5,
+    lockDuration: 300000,
+    stalledInterval: 60000,
+    maxStalledCount: 3,
+};
+
+const QUEUE_OVERRIDES = {
+    [QUEUE_NAMES.INGESTION]: {
+        concurrency: 1,
+        lockDuration: 900000,
+        stalledInterval: 120000,
+        maxStalledCount: 5,
+    },
+    [QUEUE_NAMES.SEARCH_INDEX]: {
+        concurrency: 2,
+    },
+    [QUEUE_NAMES.SLUG_RESOLVER]: {
+        concurrency: 3,
+    },
+};
+
 /**
- * Instantiates a configured BullMQ Worker, complete with robust event telemetry reporting listeners.
- * Handles Redis disconnections gracefully to prevent worker crashes.
- * Includes automatic stalled job recovery on startup.
- * @param {string} queueName - Registry space target defining job domains to pull.
- * @param {Function} processor - Path or method execution wrapper parsing active payloads.
- * @returns {Worker} Fully operational background engine consumer instance.
+ * Instantiates a configured BullMQ Worker with queue-specific tuning.
+ * @param {string} queueName
+ * @param {Function} processor
+ * @param {Object} [extraOptions]
+ * @returns {Worker}
  */
-export function createWorker(queueName, processor) {
+export function createWorker(queueName, processor, extraOptions = {}) {
     let dedicatedWorkerConnection;
-    
+
     try {
-        dedicatedWorkerConnection = createBullMQConnection();
+        dedicatedWorkerConnection = createBullMQConnection({ dedicated: true });
     } catch (err) {
         logger.error({ queue: queueName, error: err.message }, `Failed to initialize Redis connection for queue [${queueName}]`);
-        // Return a mock worker if Redis fails
         return {
             name: queueName,
-            close: async () => {},
-            on: () => {}
+            close: async () => { },
+            on: () => { },
         };
     }
 
-    const worker = new Worker(queueName, processor, {
+    const queueConfig = QUEUE_OVERRIDES[queueName] || {};
+    const workerOptions = {
+        ...WORKER_DEFAULTS,
+        ...queueConfig,
+        ...extraOptions,
         connection: dedicatedWorkerConnection,
-        concurrency: 5,
-        settings: {
-            maxStalledCount: 1,
-            stalledInterval: 30000,
+    };
+
+    const worker = new Worker(queueName, processor, workerOptions);
+
+    worker.on('ready', () => {
+        if (!worker._hasLoggedReady) {
+            worker._hasLoggedReady = true;
+            logger.info({ queue: queueName, event: 'worker_ready' }, `Worker process listening for work items inside queue [${queueName}]`);
         }
     });
 
-    worker.on('ready', async () => {
-        // Track reconnection count to detect unstable connections
-        const reconnectCount = (worker._reconnectCount || 0) + 1;
-        worker._reconnectCount = reconnectCount;
-        
-        if (reconnectCount === 1) {
-            logger.info({ queue: queueName, event: 'worker_ready' }, `Worker process listening for work items inside queue [${queueName}]`);
-        } else {
-            logger.warn({ queue: queueName, event: 'worker_reconnected', reconnectCount }, `Worker RECONNECTED to queue [${queueName}] (attempt ${reconnectCount})`);
-        }
+    worker.on('closing', () => {
+        worker._hasLoggedReady = false;
     });
 
     worker.on('active', (job) => {
@@ -54,7 +75,7 @@ export function createWorker(queueName, processor) {
         logger.info({ queue: queueName, jobId: job.id, event: 'job_progress', value: progress }, `Job ${job.id} inside queue [${queueName}] reported update: ${progress}%`);
     });
 
-    worker.on('completed', (job, result) => {
+    worker.on('completed', (job) => {
         logger.info({ queue: queueName, jobId: job.id, event: 'job_completed' }, `Job ${job.id} inside queue [${queueName}] completed successfully. Payload returned.`);
     });
 
@@ -66,8 +87,12 @@ export function createWorker(queueName, processor) {
     });
 
     worker.on('error', (error) => {
-        // Handle specific Redis errors gracefully without crashing
-        if (error.code === 'ETIMEDOUT' || error.message.includes('Connection is closed') || error.message.includes('EAI_AGAIN')) {
+        if (
+            error.code === 'ETIMEDOUT'
+            || error.message === 'Command timed out'
+            || error.message.includes('Connection is closed')
+            || error.message.includes('EAI_AGAIN')
+        ) {
             logger.warn({ queue: queueName, event: 'redis_error', error: error.message }, `Redis connection issue for queue [${queueName}]. BullMQ will attempt auto-reconnect.`);
         } else {
             logger.error({ queue: queueName, event: 'worker_error', error: error.message }, `Internal pipeline structural exception inside queue [${queueName}]: ${error.stack}`);
