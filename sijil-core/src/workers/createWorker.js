@@ -36,7 +36,15 @@ export function createWorker(queueName, processor) {
 
     // Auto-recover stalled jobs on worker ready
     worker.on('ready', async () => {
-        logger.info({ queue: queueName, event: 'worker_ready' }, `Worker process listening for work items inside queue [${queueName}]`);
+        // Track reconnection count to detect unstable connections
+        const reconnectCount = (worker._reconnectCount || 0) + 1;
+        worker._reconnectCount = reconnectCount;
+        
+        if (reconnectCount === 1) {
+            logger.info({ queue: queueName, event: 'worker_ready' }, `Worker process listening for work items inside queue [${queueName}]`);
+        } else {
+            logger.warn({ queue: queueName, event: 'worker_reconnected', reconnectCount }, `Worker RECONNECTED to queue [${queueName}] (attempt ${reconnectCount})`);
+        }
         
         // Check for stalled jobs using the Queue API
         try {

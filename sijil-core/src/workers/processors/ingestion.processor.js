@@ -341,7 +341,14 @@ async function processBatchImport(job) {
                 }
                 
                 // Call existing ingestDocument service - SINGLE SOURCE OF TRUTH
-                logger.info({ batch_id, file: filePath, has_topics: !!enrichedDoc.topics, topic_count: enrichedDoc.topics.length }, 'Calling ingestDocument');
+                logger.info({ 
+                    batch_id, 
+                    file: filePath, 
+                    has_topics: !!enrichedDoc.topics, 
+                    topic_count: enrichedDoc.topics.length,
+                    schema_version: enrichedDoc.schema_version,
+                    schema_type: enrichedDoc.schema_type
+                }, 'Calling ingestDocument');
                 
                 try {
                     const result = await ingestDocument({
@@ -349,7 +356,14 @@ async function processBatchImport(job) {
                         source: 'batch_import',
                         batch_id
                     });
-                    logger.info({ batch_id, file: filePath, success: result.success, summary: result.summary }, 'IngestDocument completed');
+                    logger.info({ 
+                        batch_id, 
+                        file: filePath, 
+                        success: result.success, 
+                        summary: result.summary,
+                        document_id: result.summary?.document_id,
+                        total_topics: result.summary?.total_topics_processed
+                    }, 'IngestDocument completed');
 
                     processedCount++;
 
@@ -406,19 +420,38 @@ async function processBatchImport(job) {
                 logger.info({ batch_id, file: filePath }, '==== FILE PROCESSING COMPLETE ===');
                 
             } catch (error) {
-                logger.error({ err: error, batch_id, file: filePath, stack: error.stack }, '=== DOCUMENT PROCESSING ERROR ===');
+                // COMPREHENSIVE ERROR LOGGING - Never log empty err:{}
+                const errorDetails = {
+                    message: error?.message || 'Unknown error',
+                    name: error?.name || 'Error',
+                    stack: error?.stack || 'No stack trace',
+                    statusCode: error?.response?.status,
+                    statusText: error?.response?.statusText,
+                    responseData: error?.response?.data ? JSON.stringify(error.response.data).substring(0, 500) : null,
+                    isAxiosError: error?.isAxiosError,
+                    code: error?.code
+                };
+
+                logger.error({ 
+                    batch_id, 
+                    file: filePath, 
+                    ...errorDetails 
+                }, '=== DOCUMENT PROCESSING ERROR ===');
+                
                 processedCount++;
                 
-                // Track failed file
+                // Track failed file with full details
                 const existingFailed = batch.failed_files.find(f => f.file_path === filePath);
                 if (existingFailed) {
                     existingFailed.retry_count = (existingFailed.retry_count || 1) + 1;
-                    existingFailed.error = error.message;
+                    existingFailed.error = errorDetails.message;
+                    existingFailed.full_error = errorDetails;
                     existingFailed.failed_at = new Date();
                 } else {
                     batch.failed_files.push({
                         file_path: filePath,
-                        error: error.message,
+                        error: errorDetails.message,
+                        full_error: errorDetails,
                         failed_at: new Date(),
                         retry_count: 1
                     });
