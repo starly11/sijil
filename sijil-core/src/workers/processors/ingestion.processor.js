@@ -216,16 +216,33 @@ async function processBatchImport(job) {
     
     await job.updateProgress(5);
     
+    let batch;
     try {
-        const batch = await ImportBatch.findOne({ batch_id });
+        batch = await ImportBatch.findOne({ batch_id });
         
         if (!batch) {
             throw new Error(`ImportBatch not found: ${batch_id}`);
         }
         
-        if (batch.status === 'COMPLETED' && !retry_only) {
+        // Handle retry case - update status to RETRYING
+        if (retry_only) {
+            batch.status = 'RETRYING';
+            batch.progress.importing.status = 'in_progress';
+            await batch.save();
+        } else if (batch.status === 'QUEUED') {
+            // First time processing - update from QUEUED to IMPORTING
+            batch.status = 'IMPORTING';
+            batch.progress.importing.status = 'in_progress';
+            await batch.save();
+        } else if (batch.status === 'COMPLETED' && !retry_only) {
             logger.warn({ batch_id, status: batch.status }, 'Batch already completed');
             return { status: 'skipped', reason: `Batch already ${batch.status}` };
+        }
+        
+        // Check for CANCELLED status
+        if (batch.status === 'CANCELLED') {
+            logger.warn({ batch_id, status: batch.status }, 'Batch was cancelled');
+            return { status: 'cancelled', reason: 'Batch was cancelled' };
         }
         
         // Determine branch from repo_url or default to main
@@ -459,12 +476,22 @@ async function processBatchImport(job) {
         };
         
     } catch (error) {
-        logger.error({ err: error, batch_id }, 'Batch import processing failed');
+        logger.error({ err: error, batch_id, stack: error.stack }, 'Batch import processing failed');
         
+        // Mark batch as FAILED on worker crash or unexpected error
         const batch = await ImportBatch.findOne({ batch_id });
         if (batch) {
             batch.status = 'FAILED';
             batch.progress.importing.status = 'failed';
+            batch.completed_at = new Date();
+            
+            // Add error to report if it exists
+            if (!batch.report) {
+                batch.report = {};
+            }
+            batch.report.fatal_error = error.message;
+            batch.report.failed_at = new Date().toISOString();
+            
             await batch.save();
         }
         

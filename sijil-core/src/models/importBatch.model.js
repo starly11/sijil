@@ -44,10 +44,13 @@ const importBatchSchema = new mongoose.Schema({
             'SCANNING',
             'VALIDATING',
             'READY',
+            'QUEUED',
             'IMPORTING',
+            'RETRYING',
             'COMPLETED',
             'FAILED',
-            'PARTIAL_SUCCESS'
+            'PARTIAL_SUCCESS',
+            'CANCELLED'
         ],
         default: 'PENDING',
         index: true

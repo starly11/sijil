@@ -36,10 +36,10 @@ export async function executeImport({
     }
 
     try {
-        // Update status to IMPORTING
-        batch.status = 'IMPORTING';
+        // Update status to QUEUED first, then IMPORTING when worker starts
+        batch.status = 'QUEUED';
         batch.started_at = new Date();
-        batch.progress.importing.status = 'in_progress';
+        batch.progress.importing.status = 'pending';
         await batch.save();
 
         // Log audit trail
@@ -52,7 +52,7 @@ export async function executeImport({
             input_data: { batch_id, retry_only }
         });
 
-        // Add job to ingestion queue
+        // Add job to ingestion queue with proper configuration
         const job = await ingestionQueue.add('batch_import', {
             batch_id,
             github_token,
@@ -63,7 +63,8 @@ export async function executeImport({
             jobId: `batch_${batch_id}`,
             attempts: 1,
             removeOnComplete: false,
-            removeOnFail: false
+            removeOnFail: false,
+            timeout: 3600000 // 1 hour timeout for large batches
         });
 
         logger.info(

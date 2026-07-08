@@ -93,6 +93,7 @@ export const useBatchImportStatus = (batchId: string | null) => {
       const queryData = query.state.data;
       if (!queryData) return 2000;
       const statusLower = String(queryData.status).toLowerCase();
+      // Stop polling on terminal states
       if (
         statusLower === 'completed' ||
         statusLower === 'failed' ||
@@ -103,17 +104,25 @@ export const useBatchImportStatus = (batchId: string | null) => {
       }
       return 2000;
     },
-    // Stop polling on 401 errors (unauthorized)
+    // Stop polling on errors or terminal states
     retry: (failureCount, error: any) => {
+      // Never retry on 401 unauthorized
       if (error?.status === 401 || error?.response?.status === 401) {
         console.warn('[useBatchImportStatus] Unauthorized access detected. Stopping polling.');
         return false;
       }
-      return failureCount < 3;
+      // Stop after 5 failures to prevent infinite polling
+      if (failureCount >= 5) {
+        console.warn('[useBatchImportStatus] Max retries reached. Stopping polling.');
+        return false;
+      }
+      return true;
     },
     onError: (error: any) => {
       if (error?.status === 401 || error?.response?.status === 401) {
         console.error('[useBatchImportStatus] Authentication failed. Please check your admin secret.');
+      } else {
+        console.error('[useBatchImportStatus] Polling failed:', error.message);
       }
     },
   });
