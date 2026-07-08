@@ -3,6 +3,7 @@ import { generateSlug } from '../slug.service.js';
 import { detectQuranReferences, resolveQuranBlocks } from '../quran/quranReferenceExtractor.service.js';
 import { populateGeoFields } from './populateGeoFields.service.js';
 import * as logger from '../../utils/logger.js';
+import { getCurrentProfiler } from '../../utils/performanceProfiler.js';
 
 /**
  * Transforms validated input payload trees into relational decoupled database models.
@@ -10,6 +11,8 @@ import * as logger from '../../utils/logger.js';
  * @returns {Promise<Object>} Bundled normalized structural mappings ready for database insertion.
  */
 export async function normalizeDocumentPayload(validatedData) {
+    const profiler = getCurrentProfiler();
+    
     // Handle both old flat structure and new validated schema structure
     const docMeta = validatedData.document_metadata || validatedData;
     const container = validatedData.container || {};
@@ -25,6 +28,10 @@ export async function normalizeDocumentPayload(validatedData) {
     // Extract container/chapter details safely
     const containerId = container._id || container.id || generateEntityId('chapter');
     const containerSlug = container.slug || generateSlug(container.title || 'Chapter');
+    
+    if (profiler) {
+        profiler.incrementRepeatedWork('slugGenerations');
+    }
 
     const normalizedTopics = [];
     const normalizedTopicContents = [];
@@ -66,6 +73,10 @@ export async function normalizeDocumentPayload(validatedData) {
             const topicSlug = topic.slug || topic.topic_slug || generateSlug(topic.title);
             const globalTopicSlug = `${documentSlug}/${containerSlug}/${topicSlug}`;
             const topicUrlPath = `/${globalTopicSlug}`;
+            
+            if (profiler) {
+                profiler.incrementRepeatedWork('slugGenerations');
+            }
 
             topicRefs.push({
                 topic_id: topicId,

@@ -4,6 +4,7 @@ import Topic from '../../models/topic.model.js';
 import { incrementVersion } from '../../services/version/versionUtils.js';
 import { createVersionRecord, computeVersionDiff } from '../../services/version/versionDiff.service.js';
 import * as logger from '../../utils/logger.js';
+import { getCurrentProfiler } from '../../utils/performanceProfiler.js';
 
 /**
  * Builds version chain for document re-ingestion
@@ -13,6 +14,8 @@ import * as logger from '../../utils/logger.js';
  * @returns {Promise<{isUpdate: boolean, documentVersion: number, parentDocumentId: string|null, previousTopics: Array}>}
  */
 export async function buildVersionChain(documentId, newContentHash) {
+  const profiler = getCurrentProfiler();
+  
   if (!documentId) {
     // First ingestion - no version chain needed
     return {
@@ -28,10 +31,18 @@ export async function buildVersionChain(documentId, newContentHash) {
 
   try {
     // Find the latest version of this document
+    const startTime = process.hrtime.bigint();
     const latestDoc = await Document.findOne({
       'document_metadata.document_id': documentId,
       'document_metadata.is_latest': true
     }).session(session).lean();
+    const endTime = process.hrtime.bigint();
+    const durationMs = Number(endTime - startTime) / 1000000;
+    
+    if (profiler) {
+      profiler.trackMongoOperation(Document.collection.name, 'findOne', durationMs, 0);
+      profiler.incrementRepeatedWork('versionLookups');
+    }
 
     if (!latestDoc) {
       // First ingestion with provided documentId - start at version 1
@@ -60,12 +71,20 @@ export async function buildVersionChain(documentId, newContentHash) {
     const newVersion = incrementVersion(latestDoc.document_metadata.document_version);
     
     // Get all topics from the previous version (flat field in topic model)
+    const topicStartTime = process.hrtime.bigint();
     const previousTopics = await Topic.find({
       document_id: documentId,
       is_latest: true
     }).select('_id slug').session(session).lean();
+    const topicEndTime = process.hrtime.bigint();
+    const topicDurationMs = Number(topicEndTime - topicStartTime) / 1000000;
+    
+    if (profiler) {
+      profiler.trackMongoOperation(Topic.collection.name, 'find', topicDurationMs, 0);
+    }
 
     // Mark previous document as not latest (nested path)
+    const updateStartTime = process.hrtime.bigint();
     await Document.findByIdAndUpdate(
       latestDoc._id,
       { 
@@ -76,6 +95,12 @@ export async function buildVersionChain(documentId, newContentHash) {
       },
       { session }
     );
+    const updateEndTime = process.hrtime.bigint();
+    const updateDurationMs = Number(updateEndTime - updateStartTime) / 1000000;
+    
+    if (profiler) {
+      profiler.trackMongoOperation(Document.collection.name, 'findByIdAndUpdate', updateDurationMs, 0);
+    }
 
     logger.info(
       { 
@@ -115,6 +140,8 @@ export async function buildVersionChain(documentId, newContentHash) {
  * @param {string} documentId - Logical document ID
  */
 export async function archivePreviousTopics(previousTopics, documentId) {
+  const profiler = getCurrentProfiler();
+  
   if (!previousTopics || previousTopics.length === 0) {
     return { archived: 0 };
   }
@@ -122,6 +149,7 @@ export async function archivePreviousTopics(previousTopics, documentId) {
   const topicIds = previousTopics.map(t => t._id);
 
   // Soft-delete topics by setting is_archived flag (topic model has flat is_latest field)
+  const startTime = process.hrtime.bigint();
   const result = await Topic.updateMany(
     { 
       _id: { $in: topicIds },
@@ -135,6 +163,12 @@ export async function archivePreviousTopics(previousTopics, documentId) {
       }
     }
   );
+  const endTime = process.hrtime.bigint();
+  const durationMs = Number(endTime - startTime) / 1000000;
+  
+  if (profiler) {
+    profiler.trackMongoOperation(Topic.collection.name, 'updateMany', durationMs, previousTopics.length);
+  }
 
   logger.info(
     { documentId, archivedCount: result.modifiedCount },

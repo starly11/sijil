@@ -34,7 +34,6 @@ export function createWorker(queueName, processor) {
         }
     });
 
-    // Auto-recover stalled jobs on worker ready
     worker.on('ready', async () => {
         // Track reconnection count to detect unstable connections
         const reconnectCount = (worker._reconnectCount || 0) + 1;
@@ -44,58 +43,6 @@ export function createWorker(queueName, processor) {
             logger.info({ queue: queueName, event: 'worker_ready' }, `Worker process listening for work items inside queue [${queueName}]`);
         } else {
             logger.warn({ queue: queueName, event: 'worker_reconnected', reconnectCount }, `Worker RECONNECTED to queue [${queueName}] (attempt ${reconnectCount})`);
-        }
-        
-        // Check for stalled jobs using the Queue API
-        try {
-            const queue = new Queue(queueName, { connection: dedicatedWorkerConnection });
-            const stalledJobs = await queue.getStalledJobs();
-            
-            if (stalledJobs.length > 0) {
-                logger.warn({ queue: queueName, count: stalledJobs.length }, `Found ${stalledJobs.length} stalled jobs on startup. Cleaning up...`);
-                
-                for (const job of stalledJobs) {
-                    try {
-                        // Log job details before removal
-                        logger.info({ 
-                            queue: queueName, 
-                            jobId: job.id, 
-                            name: job.name,
-                            attempts: job.attemptsMade 
-                        }, `Removing stalled job: ${job.id}`);
-                        
-                        // Remove the stalled job
-                        await job.remove();
-                        
-                        // If it's an import batch job, mark the batch as failed in DB
-                        if (job.data?.batch_id) {
-                            const ImportBatch = (await import('../models/importBatch.model.js')).default;
-                            await ImportBatch.findOneAndUpdate(
-                                { batch_id: job.data.batch_id },
-                                { 
-                                    $set: { 
-                                        status: 'FAILED',
-                                        completed_at: new Date(),
-                                        errors: [...(job.data.errors || []), { 
-                                            message: 'Job stalled during processing. Server restarted. Please retry.',
-                                            timestamp: new Date()
-                                        }]
-                                    }
-                                }
-                            );
-                            logger.info({ batch_id: job.data.batch_id }, 'Marked batch as FAILED due to stalled job');
-                        }
-                    } catch (err) {
-                        logger.error({ queue: queueName, jobId: job.id, error: err.message }, `Failed to clean up stalled job`);
-                    }
-                }
-                
-                logger.info({ queue: queueName, cleaned: stalledJobs.length }, `Cleaned up ${stalledJobs.length} stalled jobs`);
-            }
-            
-            await queue.close();
-        } catch (err) {
-            logger.error({ queue: queueName, error: err.message }, `Error checking for stalled jobs on startup`);
         }
     });
 

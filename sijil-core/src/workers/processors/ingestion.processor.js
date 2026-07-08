@@ -2,6 +2,7 @@ import axios from 'axios';
 import * as logger from '../../utils/logger.js';
 import { ingestDocument } from '../../services/ingestion/ingestDocument.service.js';
 import ImportBatch from '../../models/importBatch.model.js';
+import { getCurrentProfiler, setCurrentProfiler, createProfiler } from '../../utils/performanceProfiler.js';
 
 
 const RETRY_CONFIG = {
@@ -99,11 +100,13 @@ export default async function processIngestion(job) {
 async function fetchGitHubFile(token, owner, name, path, branch = 'main', context = {}) {
     const url = `https://raw.githubusercontent.com/${owner}/${name}/${branch}/${path}`;
     let lastError = null;
+    const profiler = getCurrentProfiler();
     
     for (let attempt = 0; attempt <= RETRY_CONFIG.maxRetries; attempt++) {
         try {
             logger.debug({ ...context, url, attempt: attempt + 1 }, 'Fetching file from GitHub');
             
+            const startTime = process.hrtime.bigint();
             const response = await axios.get(url, {
                 headers: {
                     'Authorization': `token ${token}`,
@@ -113,6 +116,16 @@ async function fetchGitHubFile(token, owner, name, path, branch = 'main', contex
                 timeout: RETRY_CONFIG.timeoutMs,
                 validateStatus: (status) => status < 500
             });
+            const endTime = process.hrtime.bigint();
+            const durationMs = Number(endTime - startTime) / 1000000;
+            
+            if (profiler) {
+                profiler.startTimer('GitHub File Download');
+                profiler.stopTimer('GitHub File Download');
+                // Override with actual duration
+                profiler.metrics.timers['GitHub File Download'].durationMs = durationMs;
+                profiler.metrics.timers['GitHub File Download'].durationS = durationMs / 1000;
+            }
             
             if (response.status >= 400 && response.status < 500) {
                 throw new Error(`GitHub API returned ${response.status}: ${response.statusText}`);
@@ -157,11 +170,13 @@ async function fetchGitHubFile(token, owner, name, path, branch = 'main', contex
 async function getRepoTree(token, owner, name, branch = 'main', context = {}) {
     const url = `https://api.github.com/repos/${owner}/${name}/git/trees/${branch}?recursive=1`;
     let lastError = null;
+    const profiler = getCurrentProfiler();
     
     for (let attempt = 0; attempt <= RETRY_CONFIG.maxRetries; attempt++) {
         try {
             logger.debug({ ...context, url, repo: `${owner}/${name}`, branch, attempt: attempt + 1 }, 'Fetching repository tree');
             
+            const startTime = process.hrtime.bigint();
             const response = await axios.get(url, {
                 headers: {
                     'Authorization': `token ${token}`,
@@ -171,6 +186,16 @@ async function getRepoTree(token, owner, name, branch = 'main', context = {}) {
                 timeout: RETRY_CONFIG.timeoutMs,
                 validateStatus: (status) => status < 500
             });
+            const endTime = process.hrtime.bigint();
+            const durationMs = Number(endTime - startTime) / 1000000;
+            
+            if (profiler) {
+                profiler.startTimer('GitHub Repository Scan');
+                profiler.stopTimer('GitHub Repository Scan');
+                // Override with actual duration
+                profiler.metrics.timers['GitHub Repository Scan'].durationMs = durationMs;
+                profiler.metrics.timers['GitHub Repository Scan'].durationS = durationMs / 1000;
+            }
             
             if (response.status >= 400 && response.status < 500) {
                 throw new Error(`GitHub API returned ${response.status}: ${response.statusText}`);
@@ -214,11 +239,23 @@ async function processBatchImport(job) {
     
     logger.info({ queue: 'ingestion', jobId: job.id, batch_id, retry_only }, 'Starting batch import processing');
     
+    // Create profiler for this batch import
+    const profiler = createProfiler(`batch_${batch_id}`);
+    setCurrentProfiler(profiler);
+    profiler.startTimer('Total');
+    
     await job.updateProgress(5);
     
     let batch;
     try {
+        const profiler = getCurrentProfiler();
+        const findStartTime = process.hrtime.bigint();
         batch = await ImportBatch.findOne({ batch_id });
+        const findEndTime = process.hrtime.bigint();
+        const findDurationMs = Number(findEndTime - findStartTime) / 1000000;
+        if (profiler) {
+            profiler.trackMongoOperation(ImportBatch.collection.name, 'findOne', findDurationMs, 0);
+        }
         
         if (!batch) {
             throw new Error(`ImportBatch not found: ${batch_id}`);
@@ -227,11 +264,15 @@ async function processBatchImport(job) {
         // Handle different batch states appropriately
         if (batch.status === 'CANCELLED') {
             logger.warn({ batch_id, status: batch.status }, 'Batch was cancelled before starting');
+            profiler.stopTimer('Total');
+            profiler.printSummary(`Batch ${batch_id}`);
             return { status: 'cancelled', reason: 'Batch was cancelled' };
         }
         
         if (batch.status === 'COMPLETED' && !retry_only) {
             logger.warn({ batch_id, status: batch.status }, 'Batch already completed');
+            profiler.stopTimer('Total');
+            profiler.printSummary(`Batch ${batch_id}`);
             return { status: 'skipped', reason: `Batch already ${batch.status}` };
         }
         
@@ -239,12 +280,24 @@ async function processBatchImport(job) {
         if (retry_only && batch.failed_files.length > 0) {
             batch.status = 'RETRYING';
             batch.progress.importing.status = 'in_progress';
+            const saveStartTime = process.hrtime.bigint();
             await batch.save();
+            const saveEndTime = process.hrtime.bigint();
+            const saveDurationMs = Number(saveEndTime - saveStartTime) / 1000000;
+            if (profiler) {
+                profiler.trackMongoOperation(ImportBatch.collection.name, 'save', saveDurationMs, 1);
+            }
         } else if (batch.status === 'QUEUED') {
             // First time processing - update from QUEUED to IMPORTING
             batch.status = 'IMPORTING';
             batch.progress.importing.status = 'in_progress';
+            const saveStartTime = process.hrtime.bigint();
             await batch.save();
+            const saveEndTime = process.hrtime.bigint();
+            const saveDurationMs = Number(saveEndTime - saveStartTime) / 1000000;
+            if (profiler) {
+                profiler.trackMongoOperation(ImportBatch.collection.name, 'save', saveDurationMs, 1);
+            }
         }
         // If status is already IMPORTING or RETRYING, continue without changing
         
@@ -284,7 +337,15 @@ async function processBatchImport(job) {
             logger.info({ batch_id }, 'No files to process');
             batch.status = 'COMPLETED';
             batch.completed_at = new Date();
+            const saveStartTime = process.hrtime.bigint();
             await batch.save();
+            const saveEndTime = process.hrtime.bigint();
+            const saveDurationMs = Number(saveEndTime - saveStartTime) / 1000000;
+            if (profiler) {
+                profiler.trackMongoOperation(ImportBatch.collection.name, 'save', saveDurationMs, 1);
+            }
+            profiler.stopTimer('Total');
+            profiler.printSummary(`Batch ${batch_id}`);
             return { status: 'completed', reason: 'No files to process' };
         }
         
@@ -350,24 +411,23 @@ async function processBatchImport(job) {
                     schema_type: enrichedDoc.schema_type
                 }, 'Calling ingestDocument');
                 
-                try {
-                    const result = await ingestDocument({
-                        payload: enrichedDoc,
-                        source: 'batch_import',
-                        batch_id
-                    });
-                    logger.info({ 
-                        batch_id, 
-                        file: filePath, 
-                        success: result.success, 
-                        summary: result.summary,
-                        document_id: result.summary?.document_id,
-                        total_topics: result.summary?.total_topics_processed
-                    }, 'IngestDocument completed');
+                const result = await ingestDocument({
+                    payload: enrichedDoc,
+                    source: 'batch_import',
+                    batch_id
+                });
+                logger.info({ 
+                    batch_id, 
+                    file: filePath, 
+                    success: result.success, 
+                    summary: result.summary,
+                    document_id: result.summary?.document_id,
+                    total_topics: result.summary?.total_topics_processed
+                }, 'IngestDocument completed');
 
-                    processedCount++;
+                processedCount++;
 
-                    if (result.success) {
+                if (result.success) {
                     // Track successful file
                     batch.successful_files.push({
                         file_path: filePath,
@@ -413,7 +473,13 @@ async function processBatchImport(job) {
                 
                 // Batch database saves to reduce write load
                 if ((processedCount % BATCH_SAVE_INTERVAL === 0) || processedCount === totalFiles) {
+                    const saveStartTime = process.hrtime.bigint();
                     await batch.save();
+                    const saveEndTime = process.hrtime.bigint();
+                    const saveDurationMs = Number(saveEndTime - saveStartTime) / 1000000;
+                    if (profiler) {
+                        profiler.trackMongoOperation(ImportBatch.collection.name, 'save', saveDurationMs, 1);
+                    }
                     logger.debug({ batch_id, processedCount, interval: BATCH_SAVE_INTERVAL }, 'Batch progress saved to database');
                 }
                 
@@ -460,7 +526,13 @@ async function processBatchImport(job) {
                 
                 // Continue processing - don't crash the batch
                 if ((processedCount % BATCH_SAVE_INTERVAL === 0) || processedCount === totalFiles) {
+                    const saveStartTime = process.hrtime.bigint();
                     await batch.save();
+                    const saveEndTime = process.hrtime.bigint();
+                    const saveDurationMs = Number(saveEndTime - saveStartTime) / 1000000;
+                    if (profiler) {
+                        profiler.trackMongoOperation(ImportBatch.collection.name, 'save', saveDurationMs, 1);
+                    }
                 }
             }
         }
@@ -491,12 +563,21 @@ async function processBatchImport(job) {
             commit_sha: batch.commit_sha
         };
         
+        const finalSaveStartTime = process.hrtime.bigint();
         await batch.save();
+        const finalSaveEndTime = process.hrtime.bigint();
+        const finalSaveDurationMs = Number(finalSaveEndTime - finalSaveStartTime) / 1000000;
+        if (profiler) {
+            profiler.trackMongoOperation(ImportBatch.collection.name, 'save', finalSaveDurationMs, 1);
+        }
         
         logger.info(
             { batch_id, status: batch.status, success: successCount, failed: failCount },
             'Batch import completed'
         );
+        
+        profiler.stopTimer('Total');
+        profiler.printSummary(`Batch ${batch_id}`);
         
         return {
             queue: 'ingestion',
@@ -515,7 +596,15 @@ async function processBatchImport(job) {
         logger.error({ err: error, batch_id, stack: error.stack }, 'Batch import processing failed');
         
         // Mark batch as FAILED on worker crash or unexpected error
+        const profiler = getCurrentProfiler();
+        const findStartTime = process.hrtime.bigint();
         const batch = await ImportBatch.findOne({ batch_id });
+        const findEndTime = process.hrtime.bigint();
+        const findDurationMs = Number(findEndTime - findStartTime) / 1000000;
+        if (profiler) {
+            profiler.trackMongoOperation(ImportBatch.collection.name, 'findOne', findDurationMs, 0);
+        }
+        
         if (batch) {
             batch.status = 'FAILED';
             batch.progress.importing.status = 'failed';
@@ -528,7 +617,18 @@ async function processBatchImport(job) {
             batch.report.fatal_error = error.message;
             batch.report.failed_at = new Date().toISOString();
             
+            const saveStartTime = process.hrtime.bigint();
             await batch.save();
+            const saveEndTime = process.hrtime.bigint();
+            const saveDurationMs = Number(saveEndTime - saveStartTime) / 1000000;
+            if (profiler) {
+                profiler.trackMongoOperation(ImportBatch.collection.name, 'save', saveDurationMs, 1);
+            }
+        }
+        
+        if (profiler) {
+            profiler.stopTimer('Total');
+            profiler.printSummary(`Batch ${batch_id}`);
         }
         
         throw error;

@@ -7,6 +7,7 @@ import { persistIngestion } from './persistIngestion.js';
 import { computeContentHash } from './computeContentHash.service.js';
 import { checkDuplicate, findLatestVersion } from './checkDuplicate.service.js';
 import { buildVersionChain } from './buildVersionChain.service.js';
+import { createProfiler, setCurrentProfiler } from '../../utils/performanceProfiler.js';
 
 // Access infrastructure dispatch instances established in Phase 5
 import { slugResolverQueue, searchIndexQueue } from '../../queues/index.js';
@@ -23,12 +24,19 @@ import Document from '../../models/document.model.js';
  * @returns {Promise<Object>} Operational processing audit summary telemetry.
  */
 export async function ingestDocument({ payload, source = 'system', existingDocumentId, rawText }) {
+    // Create profiler for this ingestion
+    const profiler = createProfiler('ingestion');
+    setCurrentProfiler(profiler);
+    profiler.startTimer('Total');
+    
     let parsedPayload;
+    profiler.startTimer('Parse');
     try {
         parsedPayload = typeof payload === 'string' ? JSON.parse(payload) : payload;
     } catch (err) {
         throw new Error(`Failed to parse target ingestion payload content structure: ${err.message}`);
     }
+    profiler.stopTimer('Parse');
 
     const trackingId = generateEntityId('ingest');
     // Support multiple metadata field locations for flexibility
@@ -44,6 +52,7 @@ export async function ingestDocument({ payload, source = 'system', existingDocum
     logger.info({ trackingId, sourceSha }, `Creating early ingest tracking entry inside database...`);
 
     // Register early 'processing' lifecycle hook state
+    const trackingStartTime = process.hrtime.bigint();
     const trackingRecord = await IngestQueue.create({
         _id: trackingId,
         source_file_name: sourceFileName,
@@ -54,16 +63,22 @@ export async function ingestDocument({ payload, source = 'system', existingDocum
         created_at: new Date(),
         updated_at: new Date()
     });
+    const trackingEndTime = process.hrtime.bigint();
+    const trackingDurationMs = Number(trackingEndTime - trackingStartTime) / 1000000;
+    profiler.trackMongoOperation(IngestQueue.collection.name, 'create', trackingDurationMs, 1);
 
     try {
+        profiler.startTimer('Validation');
         logger.info({ trackingId }, 'Passing structured tree directly into validateQwenOutput()...');
         // Use lenient mode for batch imports to skip strict Zod validation
         const isBatchImport = source === 'batch_import';
         const validationResult = await validateQwenOutput(parsedPayload, { lenient: isBatchImport });
+        profiler.stopTimer('Validation');
 
         if (!validationResult.valid) {
             const errorPayload = validationResult.errors || [{ message: 'Validation pipeline rejected payload properties shape.' }];
 
+            const updateStartTime = process.hrtime.bigint();
             await IngestQueue.updateOne(
                 { _id: trackingId },
                 {
@@ -72,8 +87,14 @@ export async function ingestDocument({ payload, source = 'system', existingDocum
                     updated_at: new Date()
                 }
             );
+            const updateEndTime = process.hrtime.bigint();
+            const updateDurationMs = Number(updateEndTime - updateStartTime) / 1000000;
+            profiler.trackMongoOperation(IngestQueue.collection.name, 'updateOne', updateDurationMs, 0);
+            profiler.incrementRepeatedWork('validations');
 
             logger.error({ trackingId }, 'Ingestion aborted due to validation criteria failure.');
+            profiler.stopTimer('Total');
+            profiler.printSummary(sourceFileName);
             return { success: false, tracking_id: trackingId, status: 'error', errors: errorPayload };
         }
 
@@ -86,13 +107,16 @@ export async function ingestDocument({ payload, source = 'system', existingDocum
             logger.info({ contentHash }, 'Content hash computed');
 
             // STEP 2: Check for exact duplicate (same hash)
+            profiler.startTimer('Duplicate Detection');
             const duplicateCheck = await checkDuplicate(contentHash);
+            profiler.stopTimer('Duplicate Detection');
             if (duplicateCheck.isDuplicate) {
                 logger.info(
                     { existingDocumentId: duplicateCheck.existingDocument._id },
                     'Duplicate document detected - skipping processing'
                 );
                 
+                const updateStartTime = process.hrtime.bigint();
                 await IngestQueue.updateOne(
                     { _id: trackingId },
                     {
@@ -104,6 +128,11 @@ export async function ingestDocument({ payload, source = 'system', existingDocum
                         updated_at: new Date()
                     }
                 );
+                const updateEndTime = process.hrtime.bigint();
+                const updateDurationMs = Number(updateEndTime - updateStartTime) / 1000000;
+                profiler.trackMongoOperation(IngestQueue.collection.name, 'updateOne', updateDurationMs, 0);
+                profiler.stopTimer('Total');
+                profiler.printSummary(sourceFileName);
                 
                 return { 
                     success: true, 
@@ -114,8 +143,10 @@ export async function ingestDocument({ payload, source = 'system', existingDocum
             }
 
             // STEP 3: Build version chain (handles parent_document_id, version increment, archival)
+            profiler.startTimer('Version Chain');
             const docIdToUse = existingDocumentId || parsedPayload?.document_metadata?.document_id;
             versionInfo = await buildVersionChain(docIdToUse, contentHash);
+            profiler.stopTimer('Version Chain');
             logger.info(versionInfo, 'Version chain established');
             
             // Attach hash and version info to payload (nested under document_metadata)
@@ -129,9 +160,14 @@ export async function ingestDocument({ payload, source = 'system', existingDocum
         }
 
         // Step 4 & 5: Run data transformations and collection mappings
+        profiler.startTimer('Normalization');
         const cleanData = validationResult.data || parsedPayload;
         const bundles = await normalizeDocumentPayload(cleanData);
+        profiler.stopTimer('Normalization');
+        
+        profiler.startTimer('Document Builder');
         const documentRecord = buildDocumentRecord(cleanData, bundles.documentId, bundles.documentSlug, bundles.topicRefs, bundles);
+        profiler.stopTimer('Document Builder');
 
         // Override with version info if available (nested under document_metadata)
         if (versionInfo.documentVersion) {
@@ -144,29 +180,37 @@ export async function ingestDocument({ payload, source = 'system', existingDocum
         }
 
         // Step 6: Atomic database writes execution
+        profiler.startTimer('MongoDB Persistence');
         const writeSummary = await persistIngestion({ 
             documentRecord, 
             bundles,
-            versionInfo 
+            versionInfo,
+            profiler
         });
+        profiler.stopTimer('MongoDB Persistence');
 
         // Step 7 & 9: Cascade control down to specialized background queues
         logger.info({ trackingId }, 'Enqueuing relational background cascade task handlers...');
 
+        profiler.startTimer('Slug Queue');
         const slugJob = await slugResolverQueue.add(`resolve:${bundles.documentId}`, {
             topic_id: bundles.documentId,
             document_id: bundles.documentId,
             unresolved_count: bundles.topicRefs.length,
             context: 'ingestion_cascade'
         });
+        profiler.stopTimer('Slug Queue');
 
+        profiler.startTimer('Search Queue');
         const searchJob = await searchIndexQueue.add(`index:${bundles.documentId}`, {
             topic_id: bundles.documentId,
             document_id: bundles.documentId,
             context: 'ingestion_cascade'
         });
+        profiler.stopTimer('Search Queue');
 
         // Step 10: Complete tracking state modifications
+        profiler.startTimer('Batch Update');
         const completionSummary = {
             document_id: bundles.documentId,
             total_topics_processed: bundles.topicRefs.length,
@@ -178,6 +222,7 @@ export async function ingestDocument({ payload, source = 'system', existingDocum
             document_version: versionInfo.documentVersion.toString()
         };
 
+        const batchUpdateStartTime = process.hrtime.bigint();
         await IngestQueue.updateOne(
             { _id: trackingId },
             {
@@ -186,8 +231,15 @@ export async function ingestDocument({ payload, source = 'system', existingDocum
                 updated_at: new Date()
             }
         );
+        const batchUpdateEndTime = process.hrtime.bigint();
+        const batchUpdateDurationMs = Number(batchUpdateEndTime - batchUpdateStartTime) / 1000000;
+        profiler.trackMongoOperation(IngestQueue.collection.name, 'updateOne', batchUpdateDurationMs, 0);
+        profiler.stopTimer('Batch Update');
 
         logger.info({ trackingId, document_id: bundles.documentId }, 'Ingestion workflow completed cleanly.');
+
+        profiler.stopTimer('Total');
+        profiler.printSummary(sourceFileName);
 
         return {
             success: true,
@@ -197,8 +249,11 @@ export async function ingestDocument({ payload, source = 'system', existingDocum
         };
     } catch (globalPipelineError) {
         logger.error({ trackingId, error: globalPipelineError.message }, 'Critical processing interruption caught during pipeline execution!');
+        profiler.stopTimer('Total');
+        profiler.printSummary(sourceFileName);
 
         try {
+            const errorUpdateStartTime = process.hrtime.bigint();
             await IngestQueue.updateOne(
                 { _id: trackingId },
                 {
@@ -207,6 +262,9 @@ export async function ingestDocument({ payload, source = 'system', existingDocum
                     updated_at: new Date()
                 }
             );
+            const errorUpdateEndTime = process.hrtime.bigint();
+            const errorUpdateDurationMs = Number(errorUpdateEndTime - errorUpdateStartTime) / 1000000;
+            profiler.trackMongoOperation(IngestQueue.collection.name, 'updateOne', errorUpdateDurationMs, 0);
         } catch (writeErr) {
             logger.error(`Failed to record fault recovery telemetry to tracking database: ${writeErr.message}`);
         }
