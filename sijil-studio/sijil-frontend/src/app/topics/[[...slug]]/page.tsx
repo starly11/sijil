@@ -6,6 +6,7 @@ import { API_ENDPOINTS } from '@/lib/api/endpoints';
 import type { TopicFull, TopicPage as TopicPageType } from '@/lib/api/types';
 import type { Question } from '@/types/assessment';
 import { ContentBlockRenderer } from '@/components/topic-content/content-block-renderer';
+import { RelatedTopicsBlock } from '@/components/topic-content/related-topics-block';
 import QuizContainer from '@/components/assessment/quiz-container';
 import { ExportTrigger } from '@/components/export/export-trigger';
 import { Button } from '@/components/ui/button';
@@ -133,6 +134,9 @@ export default async function TopicPage({ params }: TopicPageProps) {
           </div>
         )}
       </div>
+
+      {/* Related Topics */}
+      <RelatedTopicsBlock related_topics={topic.related_topics} />
 
       {/* Navigation */}
       {navigation && (

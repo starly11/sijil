@@ -18,6 +18,16 @@ async function mergeTopicFragments(topicMeta) {
   const enrichedFigures = enrichFiguresWithUrls(assets?.figures || assets?.assets || []);
   const enrichedTables = enrichTables(assets?.tables || []);
 
+  // Build related_topics from resolved cross_concept_links
+  const relatedTopics = (content?.entity_extraction?.cross_concept_links || [])
+    .filter(link => link.resolved === true)
+    .map(link => ({
+      target_entity: link.target_entity,
+      resolved_url: link.resolved_url,
+      relationship_type: link.relationship_type,
+      context: link.context
+    }));
+
   return {
     meta: {
       _id: topicMeta._id,
@@ -45,7 +55,8 @@ async function mergeTopicFragments(topicMeta) {
       mcqs: assessments?.mcqs || [],
       flashcards: assessments?.flashcards || [],
       short_questions: assessments?.short_questions || []
-    }
+    },
+    related_topics: relatedTopics
   };
 }
 

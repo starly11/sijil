@@ -8,6 +8,7 @@ import Topic from '../models/topic.model.js';
 import TopicContent from '../models/topicContent.model.js';
 import TopicAsset from '../models/topicAsset.model.js';
 import TopicAssessment from '../models/topicAssessment.model.js';
+import UnresolvedLink from '../models/unresolvedLink.model.js';
 import { requireAdmin } from '../middleware/requireAdmin.js';
 import { config } from '../config/env.js';
 import * as logger from '../utils/logger.js';
@@ -518,6 +519,44 @@ router.get('/preview/:documentId', requireAdmin, async (req, res, next) => {
 
     } catch (error) {
         logger.error({ err: error }, 'Preview failed');
+        next(error);
+    }
+});
+
+/**
+ * GET /admin/unresolved-links
+ * Get paginated unresolved links backlog (reviewed: false, most recent first)
+ */
+router.get('/unresolved-links', requireAdmin, async (req, res, next) => {
+    try {
+        const limit = parseInt(req.query.limit, 10) || 50;
+        const page = parseInt(req.query.page, 10) || 1;
+        const skip = (page - 1) * limit;
+
+        const [unresolvedLinks, total] = await Promise.all([
+            UnresolvedLink.find({ reviewed: false })
+                .sort({ created_at: -1 })
+                .limit(limit)
+                .skip(skip)
+                .lean(),
+            UnresolvedLink.countDocuments({ reviewed: false })
+        ]);
+
+        return res.status(200).json({
+            success: true,
+            data: {
+                items: unresolvedLinks,
+                pagination: {
+                    total,
+                    page,
+                    limit,
+                    totalPages: Math.ceil(total / limit)
+                }
+            }
+        });
+
+    } catch (error) {
+        logger.error({ err: error }, 'Get unresolved links failed');
         next(error);
     }
 });

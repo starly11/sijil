@@ -54,6 +54,12 @@ export interface TopicFull {
   figures: any[];
   tables: any[];
   assessments: any;
+  related_topics?: Array<{
+    target_entity: string;
+    resolved_url: string;
+    relationship_type?: string;
+    context?: string;
+  }>;
 }
 
 export interface TopicPage {
