@@ -13,8 +13,12 @@ import { requireAdmin } from '../middleware/requireAdmin.js';
 import { config } from '../config/env.js';
 import * as logger from '../utils/logger.js';
 import { ingestionQueue } from '../queues/index.js';
+import adminDocumentsRoutes from './admin-documents.routes.js';
 
 const router = Router();
+
+// Mount documents routes
+router.use('/documents', adminDocumentsRoutes);
 
 /**
  * POST /admin/import/preview

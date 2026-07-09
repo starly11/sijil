@@ -9,6 +9,7 @@ import {
   CloudUpload,
   FileText,
   BarChart3,
+  BookOpen,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -55,6 +56,11 @@ export const AdminSidebar: React.FC = () => {
       label: 'Batch Import',
       href: '/admin/import',
       icon: <CloudUpload className="h-5 w-5" />,
+    },
+    {
+      label: 'Documents',
+      href: '/admin/documents',
+      icon: <BookOpen className="h-5 w-5" />,
     },
     {
       label: 'Analytics',

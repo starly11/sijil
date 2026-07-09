@@ -9,7 +9,39 @@ export async function submitJsonIngest(req, res, next) {
         if (!req.body || Object.keys(req.body).length === 0) {
             return res.status(400).json({ success: false, error: "Empty request payload content body." });
         }
-        const result = await ingestDocument({ payload: req.body, source: 'api-endpoint' });
+        
+        const { reingest, existing_document_id } = req.query;
+        const allowReingest = reingest === 'true' || existing_document_id === 'true';
+        
+        // If re-ingestion is requested and we have an existing document ID from a previous attempt
+        let ingestParams = { 
+            payload: req.body, 
+            source: 'api-endpoint',
+            batchMode: false
+        };
+        
+        // Pass existingDocumentId if provided or if re-ingestion flag is set
+        if (req.body.existing_document_id || allowReingest) {
+            ingestParams.existingDocumentId = req.body.existing_document_id;
+        }
+        
+        const result = await ingestDocument(ingestParams);
+        
+        // Handle duplicate response with redirect option
+        if (!result.success && result.status === 'duplicate') {
+            return res.status(409).json({
+                success: false,
+                status: 'duplicate',
+                message: result.message,
+                existing_document: result.existing_document,
+                actions: {
+                    preview: result.existing_document.preview_url,
+                    reingest_override: `/api/ingest/json?reingest=true`,
+                    admin_view: `/admin/documents/${result.existing_document.document_id}`
+                }
+            });
+        }
+        
         if (!result.success) {
             return res.status(422).json(result);
         }

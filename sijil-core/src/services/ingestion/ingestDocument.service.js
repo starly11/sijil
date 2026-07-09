@@ -155,6 +155,41 @@ export async function ingestDocument({ payload, source = 'system', existingDocum
         // To enable automatic junk topic filtering, uncomment the line below:
         // validationResult.data.topics = filterJunkTopics((validationResult.data || parsedPayload).topics);
 
+        // Check for duplicate document BEFORE proceeding (non-batch mode only)
+        // This provides an early warning and allows controlled re-ingestion
+        if (!batchMode && !existingDocumentId) {
+            const textToHash = rawText || parsedPayload?.raw_text || '';
+            if (textToHash && typeof textToHash === 'string') {
+                const contentHash = computeContentHash(textToHash);
+                const duplicateCheck = await checkDuplicate(contentHash);
+                
+                if (duplicateCheck.isDuplicate) {
+                    logger.warn(
+                        { 
+                            existingDocumentId: duplicateCheck.existingDocument._id,
+                            existingSlug: duplicateCheck.existingDocument.document_metadata?.slug_global,
+                            source: sourceFileName
+                        },
+                        '⚠️  DUPLICATE WARNING: This document appears to already exist in the database. To re-ingest, use the existingDocumentId parameter or admin UI.'
+                    );
+                    
+                    // Return early with duplicate info instead of blocking
+                    return {
+                        success: false,
+                        status: 'duplicate',
+                        message: 'Document already exists. Use re-ingestion flag to override.',
+                        existing_document: {
+                            _id: duplicateCheck.existingDocument._id,
+                            document_id: duplicateCheck.existingDocument.document_metadata?.document_id,
+                            slug: duplicateCheck.existingDocument.document_metadata?.slug_global,
+                            title: duplicateCheck.existingDocument.document_metadata?.title,
+                            preview_url: `/topics/book/${duplicateCheck.existingDocument.document_metadata?.slug_global}`
+                        }
+                    };
+                }
+            }
+        }
+
         // STEP 1: Compute content hash for duplicate detection (skip in batch mode for speed)
         const textToHash = rawText || parsedPayload?.raw_text || '';
         let versionInfo = { isUpdate: false, documentVersion: 1, parentDocumentId: null, previousTopics: [] };
