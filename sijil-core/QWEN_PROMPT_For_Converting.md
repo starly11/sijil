@@ -146,6 +146,52 @@ Every content block MUST have:
   "animation_trigger": "on-scroll",
   "tailwind_classes": ""
 }
+```
+
+### RULE 11: SECTION BOUNDARY ENFORCEMENT (CRITICAL)
+
+**HARD RULE:** Each topic's `content_blocks` must ONLY contain text from that specific section.
+
+- If section_number is "1.1", the topic must NOT contain any text from section "1.2", "1.3", etc.
+- Do NOT copy the entire chapter into every topic
+- Each topic should start with its own H2 heading and end before the next section's H2
+- **Validation:** Before finalizing, hash each topic's content_blocks text. If two topics have identical or >90% similar hashes, REJECT and regenerate.
+
+### RULE 12: BLOCK TYPE DIVERSITY (CRITICAL)
+
+**HARD RULE:** If the PDF contains figures, tables, formulas, or callouts, your JSON MUST have corresponding typed blocks.
+
+- If you see "FIGURE 1.2" in the PDF → emit `type: "figure"` block (NOT paragraph)
+- If you see "TABLE 1.1" in the PDF → emit `type: "table"` block (NOT paragraph)
+- If you see a displayed equation → emit `type: "formula"` or `type: "equation"` block (NOT paragraph)
+- If you see "LINK TO LEARNING" or boxed text → emit `type: "callout"` block (NOT paragraph)
+- **Validation:** Count block types before output. If chapter has visual elements but all blocks are `type: "paragraph"`, REJECT and regenerate.
+
+### RULE 13: NO JUNK TOPICS (CRITICAL)
+
+**HARD RULE:** Never create topics from table cells, unit values, or isolated numbers.
+
+- Valid section_number format: `^\d+\.\d+$` (e.g., "1.1", "1.2", "2.5")
+- INVALID examples: "8.844", "0.04", "TABLE 1.1", "L", "354.07", "177.66 °F"
+- If a section doesn't have a proper section_number in the PDF, skip it or merge into nearest valid section
+- **Validation:** Before output, check every topic's section_number. If it doesn't match `^\d+\.\d+$`, REMOVE that topic.
+
+### RULE 14: EXTERNAL IMAGE URLS FOR FIGURES
+
+For textbooks from OpenStax or other online sources:
+
+- You MAY use full HTTPS URLs in `image_path_local` field
+- Example: `"image_path_local": "https://openstax.org/books/chemistry-2e/pages/1-2-figure.png"`
+- The figure block must be placed at the EXACT reading position where the figure appears
+- Include `figure_number`, `caption` (verbatim from book), and `alt` (20+ words describing the figure)
+- Do NOT dump figure descriptions into paragraph blocks — always use `type: "figure"`
+
+### RULE 15: VERBATIM TEXT WITH PROPER TRUNCATION
+
+- Copy text EXACTLY as it appears in the PDF
+- Do NOT paraphrase or summarize
+- If text is cut off mid-sentence in your extraction, that's an error — go back and re-extract
+- Every paragraph should be complete sentences, not truncated fragments
 ═══════════════════════════════════════════════════════════════════
 SECTION 3 — THE COMPLETE SCHEMA (Your Output Contract)
 ═══════════════════════════════════════════════════════════════════
@@ -933,6 +979,17 @@ Focus on key terms and definitions
 ═══════════════════════════════════════════════════════════════════
 SECTION 7 — QUALITY CHECKLIST (Before Finalizing Each JSON)
 ═══════════════════════════════════════════════════════════════════
+
+**CRITICAL VALIDATION STEPS (MUST RUN BEFORE OUTPUT):**
+
+1. **Duplicate Content Check:** Hash each topic's content_blocks text. If any two topics have identical or >90% similar hashes, REJECT the entire JSON and regenerate.
+
+2. **Section Number Validation:** Check every topic's section_number. If it doesn't match `^\d+\.\d+$` (e.g., "1.1", "2.5"), REMOVE that topic from the output.
+
+3. **Block Type Diversity Check:** Count blocks by type. If the chapter has visual elements (figures, tables, formulas mentioned in text) but ALL blocks are `type: "paragraph"`, REJECT and regenerate with proper typed blocks.
+
+4. **Content Boundary Check:** Ensure each topic only contains its own section's content. Topic 1.1 should NOT contain text from section 1.2, 1.3, etc.
+
 Structure
 schema_version is exactly "2.0.0"
 
@@ -963,7 +1020,7 @@ Every figure has alt with 20+ words
 
 figure_id uses stable key format
 
-image_path_local is set correctly
+image_path_local is set correctly (can be HTTPS URL for OpenStax)
 
 MCQs
 correct_answer is exactly "a", "b", "c", or "d" — lowercase

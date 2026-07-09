@@ -8,6 +8,7 @@ import { computeContentHash } from './computeContentHash.service.js';
 import { checkDuplicate, findLatestVersion } from './checkDuplicate.service.js';
 import { buildVersionChain } from './buildVersionChain.service.js';
 import { createProfiler, setCurrentProfiler } from '../../utils/performanceProfiler.js';
+import { validateTopicStructure, filterJunkTopics } from './validateStructure.service.js';
 
 // Access infrastructure dispatch instances established in Phase 5
 import { slugResolverQueue, searchIndexQueue } from '../../queues/index.js';
@@ -103,6 +104,56 @@ export async function ingestDocument({ payload, source = 'system', existingDocum
             profiler.printSummary(sourceFileName);
             return { success: false, tracking_id: trackingId, status: 'error', errors: errorPayload };
         }
+
+        // STEP 1.5: Run structural validation to catch Qwen extraction failures
+        profiler.startTimer('Structural Validation');
+        const structuralValidation = validateTopicStructure(validationResult.data || parsedPayload);
+        profiler.stopTimer('Structural Validation');
+        
+        // Log warnings but don't block ingestion (except for critical errors)
+        if (structuralValidation.errors.length > 0) {
+            logger.warn({
+                errors: structuralValidation.errors,
+                file: sourceFileName
+            }, 'Structural validation found critical errors');
+            
+            // Block on duplicate content (critical issue)
+            const hasDuplicateError = structuralValidation.errors.some(e => e.code === 'DUPLICATE_CONTENT_DETECTED');
+            if (hasDuplicateError && !batchMode) {
+                await IngestQueue.updateOne(
+                    { _id: trackingId },
+                    {
+                        status: 'error',
+                        error_log: [{ 
+                            message: 'Duplicate content detected across topics - this indicates extraction failure',
+                            details: structuralValidation.errors,
+                            timestamp: new Date()
+                        }],
+                        updated_at: new Date()
+                    }
+                );
+                profiler.stopTimer('Total');
+                profiler.printSummary(sourceFileName);
+                return { 
+                    success: false, 
+                    tracking_id: trackingId, 
+                    status: 'error',
+                    structural_validation: structuralValidation
+                };
+            }
+        }
+        
+        if (structuralValidation.warnings.length > 0) {
+            logger.warn({
+                warnings: structuralValidation.warnings,
+                stats: structuralValidation.stats,
+                file: sourceFileName
+            }, 'Structural validation warnings - ingestion will proceed but quality may be affected');
+        }
+        
+        // Optional: Filter out junk topics if enabled via flag (disabled by default to preserve data)
+        // To enable automatic junk topic filtering, uncomment the line below:
+        // validationResult.data.topics = filterJunkTopics((validationResult.data || parsedPayload).topics);
 
         // STEP 1: Compute content hash for duplicate detection (skip in batch mode for speed)
         const textToHash = rawText || parsedPayload?.raw_text || '';
