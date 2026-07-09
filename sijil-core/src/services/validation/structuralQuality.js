@@ -212,6 +212,100 @@ export function checkStructuralQuality(payload) {
         });
     }
 
+    // 9. Learning outcomes embedded in paragraphs
+    const learningOutcomesBlocks = byType.learning_outcomes || 0;
+    let learningObjMentions = 0;
+    for (const topic of topics) {
+        for (const block of topic?.content_blocks || []) {
+            if (block?.type === 'paragraph' && /LEARNING OBJECTIVES/i.test(block.text || '')) {
+                learningObjMentions += 1;
+            }
+        }
+    }
+    if (learningObjMentions >= 2 && learningOutcomesBlocks === 0) {
+        errors.push({
+            code: 'learning_outcomes_embedded_in_paragraphs',
+            message: `Found ${learningObjMentions} paragraph blocks with "LEARNING OBJECTIVES" but zero type:"learning_outcomes" blocks.`,
+        });
+    }
+
+    // 10. Section boundary bleed — topic body contains a different section heading
+    const sectionHeadingRe = /\b(\d+\.\d+)\s+[A-Z]/g;
+    for (const topic of topics) {
+        const ownSection = topic?.section_number;
+        if (!ownSection || !VALID_SECTION_RE.test(String(ownSection).trim())) continue;
+
+        const foreignSections = new Set();
+        for (const block of topic?.content_blocks || []) {
+            const text = block?.text || '';
+            let match;
+            const re = new RegExp(sectionHeadingRe.source, 'g');
+            while ((match = re.exec(text)) !== null) {
+                if (match[1] !== ownSection) {
+                    foreignSections.add(match[1]);
+                }
+            }
+        }
+        if (foreignSections.size >= 2) {
+            errors.push({
+                code: 'section_boundary_bleed',
+                topic_id: topic._id,
+                message: `Topic section ${ownSection} ("${topic.title}") contains content from other sections: ${[...foreignSections].slice(0, 5).join(', ')}. Each topic must only include its own section.`,
+            });
+        }
+    }
+
+    // 11. Generic flashcard / FAQ template detection
+    for (const topic of topics) {
+        for (const fc of topic?.flashcards || []) {
+            const back = (fc?.back || '').trim();
+            if (back.length < 25 || /concepts?\.?$/i.test(back)) {
+                warnings.push({
+                    code: 'generic_flashcard',
+                    topic_id: topic._id,
+                    message: `Flashcard "${fc?.front}" has a generic or too-short back text. Write complete, specific answers.`,
+                });
+            }
+        }
+        for (const item of topic?.faq || []) {
+            const answer = (item?.answer || '').trim();
+            if (/fundamental principles|key concepts include/i.test(answer)) {
+                warnings.push({
+                    code: 'generic_faq',
+                    topic_id: topic._id,
+                    message: `FAQ "${item?.question}" uses a generic template answer. Write specific, complete answers.`,
+                });
+            }
+        }
+    }
+
+    // 12. Empty key arrays the prompt requires when chapter has rich content
+    if (total >= 30) {
+        const hasKeyTerms = topics.some(t => Array.isArray(t.key_terms) && t.key_terms.length > 0);
+        const hasFormulas = topics.some(t =>
+            (Array.isArray(t.formulas) && t.formulas.length > 0) ||
+            (t.content_blocks || []).some(b => b?.type === 'formula' || b?.type === 'equation')
+        );
+        if (!hasKeyTerms) {
+            warnings.push({
+                code: 'missing_key_terms',
+                message: 'Large chapter has zero key_terms[]. Extract definitions and important terms.',
+            });
+        }
+        if (!hasFormulas && figureMentions === 0) {
+            // chemistry/math books usually have formulas — warn only if no formula-like content at all
+            const hasEquationText = topics.some(t =>
+                (t.content_blocks || []).some(b => /H2O|H_2|\\frac|=/.test(b?.text || ''))
+            );
+            if (hasEquationText) {
+                warnings.push({
+                    code: 'missing_formulas',
+                    message: 'Chapter text contains equation-like content but no formulas[] or formula/equation blocks.',
+                });
+            }
+        }
+    }
+
     return {
         passed: errors.length === 0,
         errors,

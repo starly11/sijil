@@ -14,7 +14,7 @@ declare global {
         }
       ) => void;
     };
-  };
+  }
 }
 
 interface FormulaBlockProps {

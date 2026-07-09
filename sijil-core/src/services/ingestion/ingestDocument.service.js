@@ -75,7 +75,12 @@ export async function ingestDocument({ payload, source = 'system', existingDocum
         profiler.stopTimer('Validation');
 
         if (!validationResult.valid) {
-            const errorPayload = validationResult.errors || [{ message: 'Validation pipeline rejected payload properties shape.' }];
+            const errorPayload = (validationResult.errors || [{ message: 'Validation pipeline rejected payload properties shape.' }])
+                .map(e => ({
+                    message: e.message || JSON.stringify(e),
+                    code: e.code || validationResult.tier,
+                    path: e.path,
+                }));
 
             if (!batchMode && trackingId) {
                 const updateStartTime = process.hrtime.bigint();
@@ -221,8 +226,9 @@ export async function ingestDocument({ payload, source = 'system', existingDocum
             total_topics_processed: bundles.topicRefs.length,
             slug_resolver_job_id: slugJob?.id || null,
             search_index_job_id: searchJob?.id || null,
-            auto_fix_log_count: cleanData.autoFixLog?.length || 0,
-            flags_raised: cleanData.flags || [],
+            auto_fix_log_count: validationResult.autoFixLog?.length || 0,
+            flags_raised: validationResult.flags || [],
+            structural_warnings: validationResult.structuralWarnings || [],
             is_update: versionInfo.isUpdate,
             document_version: versionInfo.documentVersion.toString()
         };

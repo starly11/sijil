@@ -117,7 +117,7 @@ export function SearchBar({ defaultValue = '' }: SearchBarProps) {
           />
           <Button
             type="submit"
-            variant="default"
+            variant="primary"
             className="ml-2"
           >
             Search

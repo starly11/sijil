@@ -108,8 +108,13 @@ async function mergeDocumentTopicRefs(documentRecord, bundles) {
         return documentRecord;
     }
 
-    const chapterTopicIds = new Set(bundles.normalizedTopics.map(t => t._id));
-    const keptRefs = existing.topic_refs.filter(ref => !chapterTopicIds.has(ref._id));
+    const chapterId = bundles.containerId;
+    const newTopicIds = new Set(bundles.normalizedTopics.map(t => t._id));
+    const keptRefs = existing.topic_refs.filter(ref => {
+        if (newTopicIds.has(ref._id)) return false;
+        if (chapterId && ref.chapter_id === chapterId) return false;
+        return true;
+    });
 
     const mergedRefs = [...keptRefs, ...documentRecord.topic_refs]
         .sort((a, b) => (a.display_order ?? 0) - (b.display_order ?? 0));

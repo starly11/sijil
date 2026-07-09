@@ -1,6 +1,6 @@
 'use client';
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient, UseQueryResult } from '@tanstack/react-query';
 import { apiFetchClient } from '@/lib/api/client';
 import { API_ENDPOINTS } from '@/lib/api/endpoints';
 import {
@@ -76,13 +76,6 @@ export const useBatchImportStatus = (batchId: string | null) => {
       }
       const resp = await apiFetchClient<BatchImportStatus>(API_ENDPOINTS.IMPORT_STATUS(batchId));
       
-      // Throw error on 401 to trigger retry logic
-      if (resp.status === 401) {
-        const error = new Error('Unauthorized') as any;
-        error.status = 401;
-        throw error;
-      }
-      
       if (!resp.data) {
         throw new Error('No data from API');
       }
@@ -117,13 +110,6 @@ export const useBatchImportStatus = (batchId: string | null) => {
         return false;
       }
       return true;
-    },
-    onError: (error: any) => {
-      if (error?.status === 401 || error?.response?.status === 401) {
-        console.error('[useBatchImportStatus] Authentication failed. Please check your admin secret.');
-      } else {
-        console.error('[useBatchImportStatus] Polling failed:', error.message);
-      }
     },
   });
 };

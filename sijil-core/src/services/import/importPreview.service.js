@@ -118,9 +118,9 @@ export async function previewImport({
                     ).length;
                 }
 
-                // Count assessments (mcqs, flashcards, etc)
-                const mcqs = topic.assessments?.mcqs || [];
-                const flashcards = topic.assessments?.flashcards || [];
+                // Count assessments (book_mcqs, flashcards at topic level or legacy wrapper)
+                const mcqs = topic.book_mcqs || topic.assessments?.mcqs || [];
+                const flashcards = topic.flashcards || topic.assessments?.flashcards || [];
                 total_assessments += mcqs.length + flashcards.length;
             }
         }
@@ -153,10 +153,10 @@ export async function previewImport({
                 topic_id: null
             })),
             errors: allErrors.map(e => ({
-                type: 'schema_error',
+                type: e.code?.includes('structural') || e.code ? 'schema_error' : 'schema_error',
                 message: e.message,
                 file_path: e.file,
-                details: null
+                details: { code: e.code || null },
             }))
         });
 

@@ -69,9 +69,9 @@ export const ImportPreview: React.FC<ImportPreviewProps> = ({ data }) => {
         </div>
 
         {/* Errors & Warnings */}
-        {(data.errors?.length > 0 || data.warnings?.length > 0) && (
+        {((data.errors && data.errors.length > 0) || (data.warnings && data.warnings.length > 0)) && (
           <div className="space-y-2">
-            {data.errors?.length > 0 && (
+            {data.errors && data.errors.length > 0 && (
               <div className="p-4 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg">
                 <div className="flex items-center gap-2 text-red-700 dark:text-red-400 font-semibold mb-2">
                   <XCircle className="w-5 h-5" />
@@ -91,7 +91,7 @@ export const ImportPreview: React.FC<ImportPreviewProps> = ({ data }) => {
               </div>
             )}
             
-            {data.warnings?.length > 0 && (
+            {data.warnings && data.warnings.length > 0 && (
               <div className="p-4 bg-yellow-50 dark:bg-yellow-950/30 border border-yellow-200 dark:border-yellow-800 rounded-lg">
                 <div className="flex items-center gap-2 text-yellow-700 dark:text-yellow-400 font-semibold mb-2">
                   <AlertTriangle className="w-5 h-5" />

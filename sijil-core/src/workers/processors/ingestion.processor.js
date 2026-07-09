@@ -254,7 +254,10 @@ async function processBatchImport(job) {
                         'Document imported successfully'
                     );
                 } else {
-                    trackFailedFile(batch, filePath, result.error || result.errors?.[0]?.message || 'Unknown ingestion error');
+                    const errMsg = result.errors?.map(e => e.message).join('; ')
+                        || result.error
+                        || 'Unknown ingestion error';
+                    trackFailedFile(batch, filePath, errMsg, result.errors?.[0]?.code);
                     failCount++;
                     logger.warn(
                         { batch_id, file: filePath, error: result.error || result.errors?.[0]?.message },
@@ -368,16 +371,17 @@ async function processBatchImport(job) {
     }
 }
 
-function trackFailedFile(batch, filePath, errorMessage) {
+function trackFailedFile(batch, filePath, errorMessage, errorCode = null) {
+    const fullError = errorCode ? `[${errorCode}] ${errorMessage}` : errorMessage;
     const existingFailed = batch.failed_files.find(f => f.file_path === filePath);
     if (existingFailed) {
         existingFailed.retry_count = (existingFailed.retry_count || 1) + 1;
-        existingFailed.error = errorMessage;
+        existingFailed.error = fullError;
         existingFailed.failed_at = new Date();
     } else {
         batch.failed_files.push({
             file_path: filePath,
-            error: errorMessage,
+            error: fullError,
             failed_at: new Date(),
             retry_count: 1
         });

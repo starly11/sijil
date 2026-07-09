@@ -4,6 +4,7 @@ import * as React from 'react';
 import { useParams } from 'next/navigation';
 import { useBatchImportStatus } from '@/hooks/use-batch-import';
 import { ImportProgress } from '@/components/admin/import-progress';
+import { BatchImportStatus } from '@/types/api';
 
 export default function ImportStatusPage() {
   const params = useParams();
@@ -38,7 +39,7 @@ export default function ImportStatusPage() {
         <p className="text-gray-500 mt-2">Batch ID: {batchId}</p>
       </div>
 
-      <ImportProgress status={data} />
+      <ImportProgress status={data as BatchImportStatus} />
     </div>
   );
 }

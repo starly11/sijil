@@ -45,9 +45,11 @@ export async function validateQwenOutput(rawJsonStringOrObject, options = {}) {
 
     // Structural quality gate — ALWAYS runs (batch + single ingest)
     let structuralWarnings = [];
+    let structuralStats = null;
     if (!skipStructural) {
         const structural = checkStructuralQuality(repaired);
         structuralWarnings = structural.warnings || [];
+        structuralStats = structural.stats || null;
 
         if (!structural.passed) {
             return {
@@ -55,7 +57,7 @@ export async function validateQwenOutput(rawJsonStringOrObject, options = {}) {
                 tier: 'structural',
                 errors: structural.errors,
                 structuralWarnings,
-                structuralStats: structural.stats,
+                structuralStats,
             };
         }
     }
@@ -88,6 +90,7 @@ export async function validateQwenOutput(rawJsonStringOrObject, options = {}) {
         autoFixLog,
         flags,
         structuralWarnings,
+        structuralStats,
     };
 }
 

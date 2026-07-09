@@ -11,6 +11,7 @@ import {
   useBatchImportStart,
   useBatchImportStatus,
 } from '@/hooks/use-batch-import';
+import { BatchImportStatus } from '@/types/api';
 import { Loader2, CheckCircle2, RefreshCw } from 'lucide-react';
 
 interface LogEntry {
@@ -62,7 +63,9 @@ export default function ImportPage() {
   }, [logs]);
 
   // Use the status hook if we have a batchId
-  const { data: statusData } = useBatchImportStatus(batchId);
+  const { data: statusData } = useBatchImportStatus(batchId) as {
+    data: BatchImportStatus | undefined;
+  };
 
   // Sync status updates with logs
   React.useEffect(() => {
@@ -72,7 +75,7 @@ export default function ImportPage() {
       if (status === 'scanning' && !logs.some(l => l.message.includes('Repository scan in progress'))) {
         addLog('info', 'Repository scan in progress...', statusData.counts);
       } else if (status === 'validating' && !logs.some(l => l.message.includes('Validating content'))) {
-        addLog('info', 'Validating content structure...', statusData.counts);
+        addLog('info', 'Validating content structure...');
       } else if (status === 'importing' && !logs.some(l => l.message.includes('Importing documents'))) {
         addLog('info', `Importing documents... ${statusData.counts?.imported_documents || 0}/${statusData.counts?.total_documents || 0}`, statusData.counts);
       } else if (status === 'indexing' && !logs.some(l => l.message.includes('Indexing content'))) {

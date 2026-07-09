@@ -11,7 +11,7 @@ import { FlashcardDeck } from '@/components/topic-content/flashcard-deck';
 import { FaqSection } from '@/components/topic-content/faq-section';
 import QuizContainer from '@/components/assessment/quiz-container';
 import { ExportTrigger } from '@/components/export/export-trigger';
-import { getTopicThemeClasses } from '@/lib/topic-theme';
+import { TopicStructuredData } from '@/components/topic-content/topic-structured-data';
 import { Button } from '@/components/ui/button';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 
@@ -71,11 +71,12 @@ export default async function TopicPage({ params }: TopicPageProps) {
     const questions: Question[] = [
       ...(assessments.mcqs || []).map((q: any, idx: number) => {
         // Convert options from object options (a, b, c, d) to array
-        const optionsArray = Object.entries(q.options || {}).map(([key, text]: [string, any]) => ({
+        const optionsArray = Object.entries(q.options || {}).map(([key, text]: [string, any], optionIdx: number) => ({
           id: `opt-${idx}-${key}`,
           question_id: q._id || `mcq-${idx}`,
           option_text: text as string,
-          is_correct: key === q.correct_answer
+          is_correct: key === q.correct_answer,
+          order: optionIdx
         }));
 
         return {
@@ -104,6 +105,7 @@ export default async function TopicPage({ params }: TopicPageProps) {
 
   return (
     <div className="container mx-auto px-4 py-8">
+      <TopicStructuredData topic={topic} />
       <div className={theme.container}>
       {/* Header */}
       <div className="flex items-center justify-between mb-6">

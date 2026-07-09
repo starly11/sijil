@@ -131,12 +131,16 @@ export interface BatchImportPreviewResponse {
     batch_id: string;
     documents_found: number;
     topics_found: number;
+    assets_found?: number;
+    assessments_found?: number;
     files_preview: Array<{
       path: string;
       type: string;
       status: 'valid' | 'invalid' | 'skipped';
       error?: string;
     }>;
+    errors?: Array<{ file: string; message: string }>;
+    warnings?: Array<{ file: string; message: string }>;
   };
 }
 

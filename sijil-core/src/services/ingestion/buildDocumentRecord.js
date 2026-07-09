@@ -81,7 +81,8 @@ export function buildDocumentRecord(validatedData, documentId, documentSlug, top
             slug_global: normalizedBundles.normalizedTopics[idx]?.slug_global || t.slug,
             title: t.title,
             display_order: t.order_index || idx,
-            url_path: normalizedBundles.normalizedTopics[idx]?.url_path || ''
+            url_path: normalizedBundles.normalizedTopics[idx]?.url_path || '',
+            chapter_id: normalizedBundles.containerId || container._id || container.id || null,
         })),
         document_aggregates: {
             total_topics: topicRefs.length,
