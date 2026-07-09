@@ -6,7 +6,7 @@ import { computeContentHash } from './computeContentHash.service.js';
  * Returns validation results with warnings/errors that can block or flag the import.
  */
 
-const SECTION_NUMBER_REGEX = /^\d+\.\d+$/;
+const SECTION_NUMBER_REGEX = /^\d+\.\d$/;  // Only allow single digit after dot (1.1, 2.5) - reject 8.844
 const JUNK_TOPIC_PATTERNS = [
     /^table\s*\d+/i,
     /^\d+\.\d{3,}$/,  // e.g., "8.844"

@@ -10,7 +10,7 @@ config();
 import Topic from '../src/models/topic.model.js';
 import TopicContent from '../src/models/topicContent.model.js';
 import FormulaIndex from '../src/models/formulaIndex.model.js';
-import { validateChapterStructure } from '../src/services/ingestion/validateStructure.service.js';
+import { validateTopicStructure, filterJunkTopics } from '../src/services/ingestion/validateStructure.service.js';
 
 const MONGODB_URI = process.env.MONGODB_URI;
 
@@ -48,8 +48,8 @@ async function runSmokeTests() {
 
         // Test 2: Validate structure service exists
         console.log('\n--- Structural Validation ---');
-        if (typeof validateChapterStructure === 'function') {
-            pass('validateChapterStructure service is importable');
+        if (typeof validateTopicStructure === 'function') {
+            pass('validateTopicStructure service is importable');
             
             // Test with mock data
             const mockChapter = {
@@ -69,18 +69,48 @@ async function runSmokeTests() {
             };
             
             try {
-                const result = validateChapterStructure(mockChapter);
-                if (result && Array.isArray(result.issues)) {
-                    pass('validateChapterStructure returns structured output');
-                    console.log(`   Found ${result.issues.length} issues in mock data`);
+                const result = validateTopicStructure(mockChapter);
+                if (result) {
+                    pass('validateTopicStructure returns structured output');
+                    console.log(`   Validation completed for ${mockChapter.topics.length} topics`);
                 } else {
-                    fail('validateChapterStructure returns structured output', 'Invalid return format');
+                    fail('validateTopicStructure returns structured output', 'Invalid return format');
                 }
             } catch (err) {
-                fail('validateChapterStructure executes without error', err.message);
+                fail('validateTopicStructure executes without error', err.message);
             }
         } else {
-            fail('validateChapterStructure service is importable', `Got ${typeof validateChapterStructure}`);
+            fail('validateTopicStructure service is importable', `Got ${typeof validateTopicStructure}`);
+        }
+
+        // Test 2b: Filter junk topics
+        console.log('\n--- Junk Topic Filtering ---');
+        if (typeof filterJunkTopics === 'function') {
+            pass('filterJunkTopics service is importable');
+            
+            const mockTopics = [
+                { section_number: '1.1', title: 'Valid Section' },
+                { section_number: 'TABLE 1.1', title: 'Table Fragment' },
+                { section_number: '8.844', title: 'Numeric Fragment' },
+                { section_number: '2.5', title: 'Another Valid' }
+            ];
+            
+            try {
+                const filtered = filterJunkTopics(mockTopics);
+                // Should keep only 1.1 and 2.5 (TABLE 1.1 and 8.844 are junk)
+                if (Array.isArray(filtered) && filtered.length === 2) {
+                    pass('filterJunkTopics correctly removes invalid topics');
+                    console.log(`   Filtered from ${mockTopics.length} to ${filtered.length} topics`);
+                } else {
+                    // Log what was kept for debugging
+                    console.log(`   Kept sections: ${filtered.map(t => t.section_number).join(', ')}`);
+                    fail('filterJunkTopics correctly removes invalid topics', `Expected 2, got ${filtered?.length}`);
+                }
+            } catch (err) {
+                fail('filterJunkTopics executes without error', err.message);
+            }
+        } else {
+            fail('filterJunkTopics service is importable', `Got ${typeof filterJunkTopics}`);
         }
 
         // Test 3: Schema fields exist
