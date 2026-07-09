@@ -9,6 +9,7 @@ import { checkDuplicate, findLatestVersion } from './checkDuplicate.service.js';
 import { buildVersionChain } from './buildVersionChain.service.js';
 import { createProfiler, setCurrentProfiler } from '../../utils/performanceProfiler.js';
 import { validateTopicStructure, filterJunkTopics } from './validateStructure.service.js';
+import { resolveDocumentInternalLinks } from '../internalLinks/internalLinkResolver.service.js';
 
 // Access infrastructure dispatch instances established in Phase 5
 import { slugResolverQueue, searchIndexQueue } from '../../queues/index.js';
@@ -304,6 +305,19 @@ export async function ingestDocument({ payload, source = 'system', existingDocum
                 context: 'ingestion_cascade'
             });
             profiler.stopTimer('Search Queue');
+            
+            // Resolve internal links (cross-concept links between topics)
+            profiler.startTimer('Internal Links');
+            try {
+                const linkResolutionResult = await resolveDocumentInternalLinks(bundles.documentId);
+                logger.info({ documentId: bundles.documentId, ...linkResolutionResult }, 'Internal links resolved');
+                completionSummary.internal_links_resolved = linkResolutionResult.resolved;
+                completionSummary.internal_links_skipped = linkResolutionResult.skipped;
+            } catch (error) {
+                logger.error({ documentId: bundles.documentId, error: error.message }, 'Failed to resolve internal links');
+                completionSummary.internal_links_error = error.message;
+            }
+            profiler.stopTimer('Internal Links');
         }
 
         // Step 10: Complete tracking state modifications
@@ -316,7 +330,9 @@ export async function ingestDocument({ payload, source = 'system', existingDocum
             flags_raised: validationResult.flags || [],
             structural_warnings: validationResult.structuralWarnings || [],
             is_update: versionInfo.isUpdate,
-            document_version: versionInfo.documentVersion.toString()
+            document_version: versionInfo.documentVersion.toString(),
+            internal_links_resolved: 0,
+            internal_links_skipped: 0
         };
 
         if (!batchMode && trackingId) {
